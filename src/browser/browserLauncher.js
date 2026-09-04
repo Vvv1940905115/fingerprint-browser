@@ -32,6 +32,7 @@ const { generateFingerprint } = require('../fingerprint/fingerprintGenerator');
 const { applyCDPFingerprint, detachCDP } = require('../fingerprint/cdpCommands');
 
 const PRELOAD_PATH = path.join(__dirname, '..', 'fingerprint', 'preload.js');
+const HOME_PAGE_PATH = path.join(__dirname, '..', '..', 'renderer', 'browser-home.html');
 
 class BrowserLauncher {
   /**
@@ -170,9 +171,10 @@ class BrowserLauncher {
     }
 
     // ============================================================
-    // 7. 加载页面 —— 所有网络请求都经过刚才设置的 session 代理
+    // 7. 加载本地导航首页 —— 点击按钮 / 快速卡片 / 地址栏都用 window.location 跳转
+    //    所有网络请求经过当前 session 的代理（由前面 session.setProxy 设置）
     // ============================================================
-    win.loadURL('https://ip.cn');
+    win.loadFile(HOME_PAGE_PATH);
 
     // ============================================================
     // 8. 跟踪 + 生命周期清理

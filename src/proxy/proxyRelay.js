@@ -139,27 +139,26 @@ class ProxyRelay {
     }
 
     // HTTP/HTTPS 上游代理：发送 CONNECT 请求
-    const upstreamUrl = `${this.upstream.protocol}://${this.upstream.host}:${this.upstream.port}`;
-    const upstreamParsed = new URL(upstreamUrl);
+    const upstreamHost = this.upstream.host;
+    const upstreamPort = this.upstream.port;
 
-    const options = {
-      host: upstreamParsed.hostname,
-      port: upstreamParsed.port,
-      method: 'CONNECT',
-      path: `${host}:${port}`,
-      headers: {
-        'Host': `${host}:${port}`,
-        'Connection': 'keep-alive',
-      },
-    };
-
-    // 添加认证头
+    // 构造要发送的 CONNECT 请求（纯文本 HTTP）
+    const headerLines = [
+      `CONNECT ${host}:${port} HTTP/1.1`,
+      `Host: ${host}:${port}`,
+      `Connection: keep-alive`,
+    ];
     const authHeader = this.buildProxyAuthHeader();
     if (authHeader) {
-      options.headers['Proxy-Authorization'] = authHeader;
+      headerLines.push(`Proxy-Authorization: ${authHeader}`);
     }
+    const connectRequest = headerLines.join('\r\n') + '\r\n\r\n';
 
-    const proxySocket = net.connect(options, () => {
+    const proxySocket = net.connect(upstreamPort, upstreamHost, () => {
+      // 关键：net.connect 只会建立 TCP 连接，不会自动发 HTTP 请求！
+      // 我们必须手动写入 CONNECT 请求
+      proxySocket.write(connectRequest);
+
       // 等 CONNECT 响应
       let responseBuffer = '';
       const onData = (data) => {
