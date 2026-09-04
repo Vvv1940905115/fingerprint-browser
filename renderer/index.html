@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; img-src 'self' data:;">
+  <title>指纹浏览器 - 环境管理</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <!-- 顶部工具栏 -->
+  <header class="toolbar">
+    <div class="logo">
+      <span class="logo-icon">🔒</span>
+      <span class="logo-text">Fingerprint Browser</span>
+    </div>
+    <div class="toolbar-actions">
+      <button class="btn btn-primary" id="btn-create">+ 创建环境</button>
+      <button class="btn btn-secondary" id="btn-stop-all">关闭全部</button>
+      <button class="btn btn-secondary" id="btn-refresh">刷新</button>
+    </div>
+  </header>
+
+  <!-- 主内容区 -->
+  <main class="main-content">
+    <div class="summary-bar">
+      <div class="summary-item">
+        <span class="summary-label">环境总数</span>
+        <span class="summary-value" id="stat-total">0</span>
+      </div>
+      <div class="summary-item">
+        <span class="summary-label">运行中</span>
+        <span class="summary-value" id="stat-running" style="color:#4ade80">0</span>
+      </div>
+      <div class="summary-item">
+        <span class="summary-label">已停止</span>
+        <span class="summary-value" id="stat-stopped" style="color:#94a3b8">0</span>
+      </div>
+    </div>
+
+    <!-- 环境列表 -->
+    <div class="profile-list" id="profile-list">
+      <!-- 动态渲染 -->
+    </div>
+
+    <!-- 空状态 -->
+    <div class="empty-state" id="empty-state" style="display:none;">
+      <div class="empty-icon">🌐</div>
+      <h3>还没有任何环境</h3>
+      <p>点击右上角「+ 创建环境」开始管理你的多账号业务</p>
+    </div>
+  </main>
+
+  <!-- 创建/编辑环境对话框 -->
+  <div class="modal-overlay" id="modal-overlay" style="display:none;">
+    <div class="modal">
+      <div class="modal-header">
+        <h2 id="modal-title">创建新环境</h2>
+        <button class="modal-close" id="modal-close">✕</button>
+      </div>
+      <div class="modal-body">
+        <!-- 基本信息 -->
+        <section class="form-section">
+          <h3>基本信息</h3>
+          <div class="form-group">
+            <label>环境名称 *</label>
+            <input type="text" id="input-name" placeholder="例如：美国-亚马逊店铺A" maxlength="50">
+          </div>
+        </section>
+
+        <!-- 代理配置 -->
+        <section class="form-section">
+          <h3>代理配置 <span class="section-hint">（每个环境独立代理，不影响系统全局）</span></h3>
+
+          <div class="proxy-toggle">
+            <label class="checkbox-label">
+              <input type="checkbox" id="proxy-enabled" checked>
+              <span>启用代理</span>
+            </label>
+          </div>
+
+          <div class="proxy-config" id="proxy-config">
+            <div class="form-row">
+              <div class="form-group">
+                <label>协议</label>
+                <select id="proxy-protocol">
+                  <option value="http">HTTP</option>
+                  <option value="https">HTTPS</option>
+                  <option value="socks5">SOCKS5</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label>代理 IP *</label>
+                <input type="text" id="proxy-host" placeholder="例如 proxy.example.com">
+              </div>
+              <div class="form-group form-group-small">
+                <label>端口 *</label>
+                <input type="number" id="proxy-port" placeholder="8080" min="1" max="65535">
+              </div>
+            </div>
+
+            <div class="form-row">
+              <div class="form-group">
+                <label>用户名（可选）</label>
+                <input type="text" id="proxy-username" placeholder="留空表示无认证">
+              </div>
+              <div class="form-group">
+                <label>密码（可选）</label>
+                <input type="password" id="proxy-password" placeholder="留空表示无认证">
+              </div>
+            </div>
+
+            <div class="proxy-test">
+              <button class="btn btn-outline" id="btn-test-proxy">🔍 测试连通性</button>
+              <span class="proxy-test-result" id="proxy-test-result"></span>
+            </div>
+
+            <div class="proxy-info-box">
+              <strong>ℹ️ 分流策略：</strong>
+              <ul>
+                <li>本地局域网（192.168.x.x / 10.x.x.x）→ 直连，走本地网卡</li>
+                <li>国内域名（baidu.com / taobao.com）→ 直连，走本地网卡</li>
+                <li>国内 IP 段 → 直连</li>
+                <li>其余境外流量 → 通过上述代理转发</li>
+              </ul>
+            </div>
+          </div>
+        </section>
+
+        <!-- 指纹信息（自动生成） -->
+        <section class="form-section">
+          <h3>指纹信息</h3>
+          <p class="section-hint">指纹基于环境 ID 自动生成，同一环境每次启动指纹一致，不同环境互不重复。</p>
+          <button class="btn btn-outline" id="btn-regenerate-fingerprint">🔄 重新生成指纹（换一套新指纹）</button>
+        </section>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" id="modal-cancel">取消</button>
+        <button class="btn btn-primary" id="modal-save">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 确认对话框 -->
+  <div class="modal-overlay" id="confirm-overlay" style="display:none;">
+    <div class="modal modal-small">
+      <div class="modal-header">
+        <h2 id="confirm-title">确认操作</h2>
+      </div>
+      <div class="modal-body">
+        <p id="confirm-message"></p>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" id="confirm-cancel">取消</button>
+        <button class="btn btn-danger" id="confirm-ok">确认</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="js/app.js"></script>
+</body>
+</html>
