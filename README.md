@@ -7,7 +7,11 @@
 
 ## 一、项目简介
 
-本项目是一个基于 **Electron** 的桌面应用，用来在**同一台 Windows 电脑**上管理多个互不干扰的浏览器"环境（Profile）"。
+本项目是一个基于 **Electron** 的桌面应用，用来在**同一台 Windows 电脑**上管理多个互不干扰的浏览器"环境（Profile）
+
+<img width="1350" height="861" alt="556" src="https://github.com/user-attachments/assets/f8e07e96-b152-4893-872c-5a045bc70c81" />
+
+
 
 每个环境具备：
 
