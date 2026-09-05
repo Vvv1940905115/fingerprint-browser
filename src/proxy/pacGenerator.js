@@ -26,13 +26,16 @@ const { CN_IP_RANGES, CN_DOMAINS, DIRECT_DOMAINS } = require('./cnIPs');
  * @returns {string} PAC 文件内容
  */
 function generatePAC(proxy) {
-  const proxyScheme = (proxy.protocol === 'socks5' || proxy.protocol === 'socks4')
-    ? proxy.protocol.toUpperCase()
-    : 'PROXY';
+  // proxy 为 null 或无 host → 全部 DIRECT（无代理）
+  const hasProxy = proxy && proxy.host && proxy.port;
 
-  const proxyHost = proxy.host || '127.0.0.1';
-  const proxyPort = proxy.port || 8888;
-  const proxyLine = `${proxyScheme} ${proxyHost}:${proxyPort}`;
+  let proxyLine = 'DIRECT';
+  if (hasProxy) {
+    const proxyScheme = (proxy.protocol === 'socks5' || proxy.protocol === 'socks4')
+      ? proxy.protocol.toUpperCase()
+      : 'PROXY';
+    proxyLine = `${proxyScheme} ${proxy.host}:${proxy.port}`;
+  }
 
   // 将 CIDR 转换为 PAC 兼容的 isInNet 参数
   // isInNet(host, "network", "mask") — 需要把 CIDR 拆成 network + mask

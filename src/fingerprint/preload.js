@@ -14,6 +14,11 @@
 (function () {
   'use strict';
 
+  // 立即输出一条日志，确认 preload 真的在跑
+  // 这条日志会出现在 Chromium 的 DevTools Console 和 Electron 主进程日志里
+  console.log('[Fingerprint Preload] ⚡ EXECUTING — process.argv length:',
+    (typeof process !== 'undefined' && process.argv) ? process.argv.length : 0);
+
   // fingerprintConfig 通过 BrowserWindow 的 additionalArguments 传入
   // additionalArguments 会被附加到 process.argv
   let config = null;
@@ -25,6 +30,7 @@
         try {
           const encoded = arg.substring('--fingerprint-config='.length);
           config = JSON.parse(decodeURIComponent(encoded));
+          console.log('[Fingerprint Preload] ✓ Config parsed from argv, keys:', Object.keys(config || {}).join(','));
         } catch (e) {
           console.warn('[Fingerprint Preload] Failed to parse config from argv:', e.message);
         }
@@ -36,10 +42,14 @@
   // 方法二：兜底——从 globalThis 读取（主进程 dom-ready 后注入）
   if (!config && typeof globalThis !== 'undefined' && globalThis.__FINGERPRINT_CONFIG__) {
     config = globalThis.__FINGERPRINT_CONFIG__;
+    console.log('[Fingerprint Preload] ✓ Config from globalThis');
   }
 
   // 如果没有指纹配置，什么都不做
-  if (!config || !config.enabled) return;
+  if (!config || !config.enabled) {
+    console.log('[Fingerprint Preload] No fingerprint config (or enabled=false) → skip');
+    return;
+  }
 
   console.log('[Fingerprint Preload] Applying fingerprint config:', JSON.stringify({
     ...config,

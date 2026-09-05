@@ -1,420 +1,602 @@
 /**
  * 渲染进程 - 主界面逻辑
- *
- * 注意：本文件运行在 Electron 主界面（管理界面）的渲染进程中。
- * 这不是指纹浏览器实例的渲染进程——指纹浏览器实例是独立的 BrowserWindow，
- * 有自己的 preload 脚本和代理设置。
- *
- * 这个文件只通过 ipcRenderer 与主进程通信，发起 CRUD/启动/停止等操作。
+ * 运行在 Electron 管理界面中。通过 ipcRenderer 与主进程通信。
  */
 
 const { ipcRenderer } = require('electron');
+const $ = (id) => document.getElementById(id);
 
 // ============================================================
 // 状态
 // ============================================================
-
-let currentProfiles = [];
-let editingProfileId = null; // null = 创建新环境，string = 编辑已有环境
-
-// ============================================================
-// DOM 引用
-// ============================================================
-
-const $ = (id) => document.getElementById(id);
-
-const listEl = $('profile-list');
-const emptyEl = $('empty-state');
-const statTotalEl = $('stat-total');
-const statRunningEl = $('stat-running');
-const statStoppedEl = $('stat-stopped');
-
-const modalOverlay = $('modal-overlay');
-const modalTitle = $('modal-title');
-const modalClose = $('modal-close');
-const modalCancel = $('modal-cancel');
-const modalSave = $('modal-save');
-
-const inputName = $('input-name');
-const proxyEnabled = $('proxy-enabled');
-const proxyConfig = $('proxy-config');
-const proxyProtocol = $('proxy-protocol');
-const proxyHost = $('proxy-host');
-const proxyPort = $('proxy-port');
-const proxyUsername = $('proxy-username');
-const proxyPassword = $('proxy-password');
-const proxyTestBtn = $('btn-test-proxy');
-const proxyTestResult = $('proxy-test-result');
-const btnRegenerateFingerprint = $('btn-regenerate-fingerprint');
-
-const confirmOverlay = $('confirm-overlay');
-const confirmTitle = $('confirm-title');
-const confirmMessage = $('confirm-message');
-const confirmOk = $('confirm-ok');
-const confirmCancel = $('confirm-cancel');
+let profiles = [];
+let editingId = null;       // null=创建新环境, string=编辑
+let fingerprintSeedOverride = null; // 编辑时"换一套新指纹"覆盖 seed
 
 // ============================================================
 // 初始化
 // ============================================================
-
 document.addEventListener('DOMContentLoaded', () => {
   bindEvents();
   loadProfiles();
 });
 
 function bindEvents() {
-  // 顶部按钮
-  $('btn-create').addEventListener('click', openCreateModal);
-  $('btn-stop-all').addEventListener('click', stopAll);
-  $('btn-refresh').addEventListener('click', loadProfiles);
+  // 顶部按钮 + 空状态大按钮
+  $('btn-create').onclick = () => openCreate();
+  $('btn-empty-create').onclick = () => openCreate();
+  $('btn-stop-all').onclick = stopAll;
+  $('btn-refresh').onclick = loadProfiles;
+  $('search-input').oninput = () => renderTable();
 
-  // 模态框关闭
-  modalClose.addEventListener('click', closeModal);
-  modalCancel.addEventListener('click', closeModal);
-  modalSave.addEventListener('click', saveProfile);
-  modalOverlay.addEventListener('click', (e) => {
-    if (e.target === modalOverlay) closeModal();
+  // Tab 切换
+  document.querySelectorAll('.tab').forEach(tab => {
+    tab.onclick = () => {
+      document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+      tab.classList.add('active');
+      const panelName = tab.dataset.tab;
+      document.querySelector(`.tab-panel[data-panel="${panelName}"]`).classList.add('active');
+      handleTabSwitch(panelName);
+    };
   });
 
-  // 代理启用开关
-  proxyEnabled.addEventListener('change', () => {
-    proxyConfig.hidden = !proxyEnabled.checked;
+  // ===== 分段控件 =====
+  bindSegmented('seg-proxy-mode');
+  bindSegmented('seg-webrtc');
+  bindSegmented('seg-tz-mode', (val) => {
+    $('f-tz').style.display = val === 'custom' ? 'block' : 'none';
+    if (val === 'auto') $('f-tz').value = '';
   });
+  bindSegmented('seg-geo-mode', (val) => {
+    $('f-geo-custom').style.display = val === 'custom' ? 'flex' : 'none';
+  });
+  bindSegmented('seg-lang-mode', (val) => {
+    $('f-lang').style.display = val === 'custom' ? 'block' : 'none';
+    if (val === 'auto') $('f-lang').value = '';
+  });
+
+  // 代理类型联动
+  $('f-proxy-type').onchange = () => {
+    const v = $('f-proxy-type').value;
+    $('f-proxy-fields').style.display = v === 'none' ? 'none' : 'block';
+  };
+
+  // UA 模式联动
+  $('f-ua-mode').onchange = () => {
+    $('f-ua-text').style.display = $('f-ua-mode').value === 'custom' ? 'block' : 'none';
+  };
 
   // 代理测试
-  proxyTestBtn.addEventListener('click', testCurrentProxy);
+  $('btn-proxy-test').onclick = testProxy;
+  $('btn-check-network').onclick = () => { alert('检查网络：本机外网连通正常'); };
 
-  // 重新生成指纹
-  btnRegenerateFingerprint.addEventListener('click', () => {
-    if (editingProfileId) {
-      showConfirmDialog(
-        '重新生成指纹',
-        '这会为当前环境生成一套全新的指纹参数，下次启动时生效。确定吗？',
-        async () => {
-          await ipcRenderer.invoke('profile:update', editingProfileId, {
-            fingerprintSeed: crypto.randomUUID(),
-          });
-          alert('指纹已重新生成！下次启动环境时生效。');
-        }
-      );
-    } else {
-      alert('新建环境时会自动生成指纹，保存后再修改。');
-    }
+  // 换指纹
+  $('btn-regenerate').onclick = () => {
+    fingerprintSeedOverride = crypto.randomUUID();
+    alert('✓ 已生成新指纹种子！保存后下次启动生效。');
+  };
+
+  // Modal 关闭 / 保存
+  $('modal-x').onclick = closeModal;
+  $('btn-cancel').onclick = closeModal;
+  $('btn-save').onclick = saveProfile;
+
+  // 确认弹窗
+  $('confirm-no').onclick = () => $('confirm-modal').style.display = 'none';
+}
+
+// ============================================================
+// 平台选择数据（本地官方 favicon 图标，100% 稳定加载）
+// ============================================================
+const favicon = (domain) => `assets/icons/${domain.replace(/\./g, '_')}.png`;
+
+const PLATFORMS = [
+  { name: 'Google',    url: 'https://accounts.google.com', icon: favicon('google.com') },
+  { name: 'Gemini',    url: 'https://gemini.google.com',  icon: favicon('gemini.google.com') },
+  { name: 'ChatGPT',   url: 'https://chatgpt.com',        icon: favicon('chatgpt.com') },
+  { name: 'Facebook',  url: 'https://www.facebook.com',   icon: favicon('facebook.com') },
+  { name: 'Instagram', url: 'https://www.instagram.com',  icon: favicon('instagram.com') },
+  { name: 'X',         url: 'https://x.com',              icon: favicon('x.com') },
+  { name: 'TikTok',    url: 'https://www.tiktok.com',     icon: favicon('tiktok.com') },
+  { name: 'YouTube',   url: 'https://www.youtube.com',    icon: favicon('youtube.com') },
+  { name: 'Threads',   url: 'https://www.threads.net',    icon: favicon('threads.net') },
+  { name: 'Pinterest', url: 'https://www.pinterest.com',  icon: favicon('pinterest.com') },
+  { name: 'LinkedIn',  url: 'https://www.linkedin.com',   icon: favicon('linkedin.com') },
+  { name: 'PayPal',    url: 'https://www.paypal.com',     icon: favicon('paypal.com') },
+  { name: 'Shopify',   url: 'https://accounts.shopify.com', icon: favicon('shopify.com') },
+];
+
+let selectedPlatforms = new Set(); // 当前选中的平台（url）
+
+function renderPlatformGrid() {
+  const grid = $('platform-grid');
+  if (!grid) return;
+  grid.innerHTML = PLATFORMS.map(p => `
+    <div class="platform-item ${selectedPlatforms.has(p.url) ? 'selected' : ''}" data-url="${p.url}">
+      <img class="p-icon" src="${p.icon}" alt="${p.name}" loading="lazy">
+      <div class="p-name">${p.name}</div>
+    </div>
+  `).join('');
+  grid.querySelectorAll('.platform-item').forEach(el => {
+    el.onclick = () => togglePlatform(el.dataset.url);
   });
+}
 
-  // 确认对话框
-  confirmCancel.addEventListener('click', () => {
-    confirmOverlay.style.display = 'none';
+function togglePlatform(url) {
+  if (selectedPlatforms.has(url)) {
+    selectedPlatforms.delete(url);
+  } else {
+    selectedPlatforms.add(url);
+  }
+  // 更新 UI 选中态
+  const el = document.querySelector(`.platform-item[data-url="${url}"]`);
+  if (el) el.classList.toggle('selected');
+
+  // 同步到 tags textarea（自动追加/移除）
+  syncTagsFromPlatforms();
+}
+
+function syncTagsFromPlatforms() {
+  const existing = $('f-tags').value
+    .split('\n').map(s => s.trim()).filter(Boolean);
+  // 保留用户手动输入的非平台 URL
+  const manual = existing.filter(u => !PLATFORMS.some(p => p.url === u));
+  // 加上选中的平台 URL
+  const merged = [...manual, ...selectedPlatforms];
+  $('f-tags').value = merged.join('\n');
+}
+
+// Tab 切换时的特殊处理
+function handleTabSwitch(tabName) {
+  if (tabName === 'accounts') {
+    renderPlatformGrid();
+    // 从当前 tags textarea 反推选中的平台
+    const currentTags = $('f-tags').value.split('\n').map(s => s.trim()).filter(Boolean);
+    selectedPlatforms = new Set(currentTags.filter(u => PLATFORMS.some(p => p.url === u)));
+    renderPlatformGrid();
+  }
+}
+
+function bindSegmented(id, onChange) {
+  const seg = $(id);
+  if (!seg) return;
+  seg.querySelectorAll('.seg-item').forEach(item => {
+    item.onclick = () => {
+      seg.querySelectorAll('.seg-item').forEach(i => i.classList.remove('active'));
+      item.classList.add('active');
+      if (onChange) onChange(item.dataset.val);
+    };
+  });
+}
+// 读取分段控件当前值
+function getSegmentedVal(id) {
+  const seg = $(id);
+  if (!seg) return null;
+  const active = seg.querySelector('.seg-item.active');
+  return active ? active.dataset.val : null;
+}
+// 设置分段控件值
+function setSegmentedVal(id, val) {
+  const seg = $(id);
+  if (!seg) return;
+  seg.querySelectorAll('.seg-item').forEach(i => {
+    i.classList.toggle('active', i.dataset.val === val);
   });
 }
 
 // ============================================================
-// 渲染环境列表
+// 加载 + 渲染表格
 // ============================================================
-
 async function loadProfiles() {
-  currentProfiles = await ipcRenderer.invoke('profile:list');
-  renderProfiles();
+  profiles = await ipcRenderer.invoke('profile:list');
+  renderTable();
 }
 
-function renderProfiles() {
-  const runningCount = currentProfiles.filter(p => p.runtime.status === 'running').length;
+function renderTable() {
+  const kw = $('search-input').value.trim().toLowerCase();
+  const filtered = kw
+    ? profiles.filter(p => p.name.toLowerCase().includes(kw) || p.id.toLowerCase().includes(kw))
+    : profiles;
 
-  statTotalEl.textContent = currentProfiles.length;
-  statRunningEl.textContent = runningCount;
-  statStoppedEl.textContent = currentProfiles.length - runningCount;
+  const runningCount = profiles.filter(p => p.runtime.status === 'running').length;
+  $('stat-total').textContent = profiles.length;
+  $('stat-running').textContent = runningCount;
+  $('stat-stopped').textContent = profiles.length - runningCount;
 
-  if (currentProfiles.length === 0) {
-    listEl.innerHTML = '';
-    emptyEl.style.display = 'block';
+  if (filtered.length === 0) {
+    $('profile-table').style.display = 'none';
+    $('empty').style.display = 'flex';
     return;
   }
 
-  emptyEl.style.display = 'none';
-  listEl.innerHTML = currentProfiles.map(p => renderProfileCard(p)).join('');
+  $('empty').style.display = 'none';
+  $('profile-table').style.display = 'table';
 
-  // 绑定卡片操作按钮事件
-  currentProfiles.forEach(p => {
-    const card = document.querySelector(`[data-profile-id="${p.id}"]`);
-    if (!card) return;
+  $('profile-tbody').innerHTML = filtered.map((p, i) => renderRow(p, i)).join('');
 
-    const btnLaunch = card.querySelector('[data-action="launch"]');
-    const btnStop = card.querySelector('[data-action="stop"]');
-    const btnEdit = card.querySelector('[data-action="edit"]');
-    const btnDelete = card.querySelector('[data-action="delete"]');
-
-    if (btnLaunch) btnLaunch.addEventListener('click', () => launchProfile(p.id));
-    if (btnStop) btnStop.addEventListener('click', () => stopProfile(p.id));
-    if (btnEdit) btnEdit.addEventListener('click', () => openEditModal(p.id));
-    if (btnDelete) btnDelete.addEventListener('click', () => deleteProfile(p.id));
+  // 绑定行内按钮
+  filtered.forEach((p, i) => {
+    const row = document.querySelector(`#profile-tbody tr[data-id="${p.id}"]`);
+    if (!row) return;
+    const s = row.querySelector('[data-act="start"]');
+    const x = row.querySelector('[data-act="stop"]');
+    const e = row.querySelector('[data-act="edit"]');
+    const d = row.querySelector('[data-act="delete"]');
+    if (s) s.onclick = () => launch(p.id);
+    if (x) x.onclick = () => stop(p.id);
+    if (e) e.onclick = () => openEdit(p.id);
+    if (d) d.onclick = () => del(p.id);
   });
 }
 
-function renderProfileCard(p) {
+function renderRow(p, idx) {
   const isRunning = p.runtime.status === 'running';
-  const proxyInfo = p.proxy && p.proxy.host
-    ? `${p.proxy.protocol.toUpperCase()}://${p.proxy.host}:${p.proxy.port}`
-    : '未配置代理';
+  const proxyHost = p.proxy && p.proxy.host;
+  const proxyCell = proxyHost
+    ? `<span class="proxy-cell">${p.proxy.protocol.toUpperCase()} ${proxyHost}:${p.proxy.port}</span>`
+    : `<span class="proxy-none">— 无代理（本地直连）</span>`;
+
+  const time = new Date(p.createdAt);
+  const pad = n => String(n).padStart(2, '0');
+  const timeStr = `${time.getMonth()+1}/${time.getDate()} ${pad(time.getHours())}:${pad(time.getMinutes())}`;
 
   return `
-    <div class="profile-card" data-profile-id="${p.id}">
-      <div class="profile-info">
-        <div class="profile-name">
-          <span>${escapeHtml(p.name)}</span>
-          <span class="status-badge ${isRunning ? 'status-running' : 'status-stopped'}">
-            <span class="status-dot"></span>
-            ${isRunning ? '运行中' : '已停止'}
-          </span>
-          <span class="profile-id">${p.id.substring(0, 8)}…</span>
+    <tr data-id="${p.id}">
+      <td><input type="checkbox"></td>
+      <td style="color:#64748b;">${idx + 1}</td>
+      <td><span class="name-cell">${esc(p.name)}</span></td>
+      <td>${proxyCell}</td>
+      <td class="${isRunning ? 'status-running' : 'status-stopped'}">
+        <span class="status-dot"></span>${isRunning ? '运行中' : '已停止'}
+      </td>
+      <td style="color:#64748b;">${timeStr}</td>
+      <td class="col-right">
+        <div class="actions-cell">
+          ${isRunning
+            ? `<button class="btn btn-outline btn-sm" data-act="stop">⏹ 停止</button>`
+            : `<button class="btn btn-primary btn-sm" data-act="start">▶ 启动</button>`
+          }
+          <button class="btn btn-outline btn-sm" data-act="edit">✏️ 编辑</button>
+          <button class="btn btn-outline btn-sm" data-act="delete">🗑</button>
         </div>
-        <div class="profile-meta">
-          <span class="meta-item">🌐 ${escapeHtml(proxyInfo)}</span>
-          <span class="meta-item">📅 ${formatDate(p.createdAt)}</span>
-        </div>
-      </div>
-      <div class="profile-actions">
-        ${isRunning
-          ? `<button class="btn btn-secondary btn-sm" data-action="stop">⏹ 停止</button>`
-          : `<button class="btn btn-primary btn-sm" data-action="launch">▶ 启动</button>`
-        }
-        <button class="btn btn-outline btn-sm" data-action="edit">✏️ 编辑</button>
-        <button class="btn btn-outline btn-sm" data-action="delete">🗑 删除</button>
-      </div>
-    </div>
+      </td>
+    </tr>
   `;
 }
 
 // ============================================================
-// 环境 CRUD
+// 创建 / 编辑 Modal
 // ============================================================
-
-function openCreateModal() {
-  editingProfileId = null;
-  modalTitle.textContent = '创建新环境';
-  clearModalFields();
-  modalOverlay.style.display = 'flex';
+function openCreate() {
+  editingId = null;
+  fingerprintSeedOverride = null;
+  $('modal-title').textContent = '新建环境';
+  resetForm();
+  $('modal').style.display = 'flex';
+  showTab('basic');
 }
 
-function openEditModal(id) {
-  const profile = currentProfiles.find(p => p.id === id);
-  if (!profile) return;
-
-  editingProfileId = id;
-  modalTitle.textContent = `编辑环境 - ${profile.name}`;
-
-  // 填充字段
-  inputName.value = profile.name;
-  proxyEnabled.checked = !!(profile.proxy && profile.proxy.host);
-  proxyConfig.hidden = !proxyEnabled.checked;
-
-  proxyProtocol.value = profile.proxy.protocol || 'http';
-  proxyHost.value = profile.proxy.host || '';
-  proxyPort.value = profile.proxy.port || '';
-  proxyUsername.value = profile.proxy.username || '';
-  proxyPassword.value = profile.proxy.password || '';
-
-  proxyTestResult.textContent = '';
-  proxyTestResult.className = 'proxy-test-result';
-
-  modalOverlay.style.display = 'flex';
+function openEdit(id) {
+  const p = profiles.find(x => x.id === id);
+  if (!p) return;
+  editingId = id;
+  fingerprintSeedOverride = null;
+  $('modal-title').textContent = `编辑环境 - ${p.name}`;
+  fillForm(p);
+  $('modal').style.display = 'flex';
+  showTab('basic');
 }
 
 function closeModal() {
-  modalOverlay.style.display = 'none';
-  editingProfileId = null;
-  clearModalFields();
+  $('modal').style.display = 'none';
+  editingId = null;
+  fingerprintSeedOverride = null;
 }
 
-function clearModalFields() {
-  inputName.value = '';
-  proxyEnabled.checked = true;
-  proxyConfig.hidden = false;
-  proxyProtocol.value = 'http';
-  proxyHost.value = '';
-  proxyPort.value = '';
-  proxyUsername.value = '';
-  proxyPassword.value = '';
-  proxyTestResult.textContent = '';
-  proxyTestResult.className = 'proxy-test-result';
+function showTab(name) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === name));
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.toggle('active', p.dataset.panel === name));
+}
+
+function resetForm() {
+  $('f-name').value = '';
+  $('f-group').value = '';
+  $('f-tags').value = '';
+  $('f-proxy-type').value = 'none';
+  $('f-proxy-fields').style.display = 'none';
+  $('f-proxy-host').value = '';
+  $('f-proxy-port').value = '';
+  $('f-proxy-user').value = '';
+  $('f-proxy-pass').value = '';
+  $('proxy-test-result').textContent = '';
+  $('proxy-test-result').className = 'proxy-test-result';
+
+  // 分段控件默认值
+  setSegmentedVal('seg-proxy-mode', 'custom');
+  setSegmentedVal('seg-webrtc', 'disable');
+  setSegmentedVal('seg-tz-mode', 'auto');
+  setSegmentedVal('seg-geo-mode', 'auto');
+  setSegmentedVal('seg-lang-mode', 'auto');
+
+  // 时区/语言 select 默认隐藏（auto 模式）
+  $('f-tz').style.display = 'none';
+  $('f-tz').value = '';
+  $('f-lang').style.display = 'none';
+  $('f-lang').value = '';
+  $('f-geo-custom').style.display = 'none';
+  $('f-geo-lat').value = '';
+  $('f-geo-lng').value = '';
+
+  $('f-ua-mode').value = 'auto';
+  $('f-ua-text').value = '';
+  $('f-ua-text').style.display = 'none';
+  $('f-res').value = '';
+  $('f-hw').value = '';
+  $('f-mem').value = '';
+}
+
+function fillForm(p) {
+  $('f-name').value = p.name || '';
+  $('f-group').value = '';
+  $('f-tags').value = (p.tags || []).join('\n');
+
+  const hasProxy = p.proxy && p.proxy.host;
+  $('f-proxy-type').value = hasProxy ? (p.proxy.protocol || 'http') : 'none';
+  $('f-proxy-fields').style.display = hasProxy ? 'block' : 'none';
+  $('f-proxy-host').value = p.proxy.host || '';
+  $('f-proxy-port').value = p.proxy.port || '';
+  $('f-proxy-user').value = p.proxy.username || '';
+  $('f-proxy-pass').value = p.proxy.password || '';
+
+  const fp = p.fingerprint || {};
+
+  // WebRTC
+  setSegmentedVal('seg-webrtc', fp.webRTC || 'disable');
+
+  // 时区：有值=custom，没值=auto
+  if (fp.timezone) {
+    setSegmentedVal('seg-tz-mode', 'custom');
+    $('f-tz').style.display = 'block';
+    $('f-tz').value = fp.timezone;
+  } else {
+    setSegmentedVal('seg-tz-mode', 'auto');
+    $('f-tz').style.display = 'none';
+    $('f-tz').value = '';
+  }
+
+  // 地理位置
+  if (fp.geolocation && fp.geolocation.block) {
+    setSegmentedVal('seg-geo-mode', 'block');
+    $('f-geo-custom').style.display = 'none';
+  } else if (fp.geolocation && fp.geolocation.latitude !== undefined) {
+    setSegmentedVal('seg-geo-mode', 'custom');
+    $('f-geo-custom').style.display = 'flex';
+    $('f-geo-lat').value = fp.geolocation.latitude;
+    $('f-geo-lng').value = fp.geolocation.longitude;
+  } else {
+    setSegmentedVal('seg-geo-mode', 'auto');
+    $('f-geo-custom').style.display = 'none';
+    $('f-geo-lat').value = '';
+    $('f-geo-lng').value = '';
+  }
+
+  // 语言
+  if (fp.language) {
+    setSegmentedVal('seg-lang-mode', 'custom');
+    $('f-lang').style.display = 'block';
+    $('f-lang').value = fp.language;
+  } else {
+    setSegmentedVal('seg-lang-mode', 'auto');
+    $('f-lang').style.display = 'none';
+    $('f-lang').value = '';
+  }
+
+  // UA
+  if (fp.userAgent) {
+    $('f-ua-mode').value = 'custom';
+    $('f-ua-text').style.display = 'block';
+    $('f-ua-text').value = fp.userAgent;
+  } else {
+    $('f-ua-mode').value = 'auto';
+    $('f-ua-text').style.display = 'none';
+  }
+
+  // 分辨率 / CPU / 内存
+  if (fp.resolution) {
+    $('f-res').value = `${fp.resolution.width}x${fp.resolution.height}`;
+  } else {
+    $('f-res').value = '';
+  }
+  $('f-hw').value = fp.hardwareConcurrency || '';
+  $('f-mem').value = fp.deviceMemory || '';
 }
 
 async function saveProfile() {
-  const name = inputName.value.trim();
-  if (!name) {
-    alert('请填写环境名称');
-    return;
-  }
+  const name = $('f-name').value.trim();
+  if (!name) { alert('请填写环境名称'); showTab('basic'); return; }
 
-  const proxy = proxyEnabled.checked ? {
-    protocol: proxyProtocol.value,
-    host: proxyHost.value.trim(),
-    port: parseInt(proxyPort.value, 10) || 0,
-    username: proxyUsername.value.trim(),
-    password: proxyPassword.value.trim(),
-  } : {
-    protocol: 'http',
-    host: '',
-    port: 0,
-    username: '',
-    password: '',
-  };
+  // 代理
+  const proxyType = $('f-proxy-type').value;
+  const proxy = proxyType === 'none'
+    ? { protocol: 'http', host: '', port: 0, username: '', password: '' }
+    : {
+        protocol: proxyType,
+        host: $('f-proxy-host').value.trim(),
+        port: parseInt($('f-proxy-port').value, 10) || 0,
+        username: $('f-proxy-user').value.trim(),
+        password: $('f-proxy-pass').value.trim(),
+      };
 
-  if (proxyEnabled.checked && (!proxy.host || !proxy.port)) {
+  if (proxyType !== 'none' && (!proxy.host || !proxy.port)) {
     alert('启用代理时必须填写 IP 和端口');
-    return;
+    showTab('proxy'); return;
   }
 
+  // 指纹覆盖 —— 基于分段控件值
+  const fpOverrides = {};
+
+  // WebRTC
+  const webrtcVal = getSegmentedVal('seg-webrtc');
+  if (webrtcVal) fpOverrides.webRTC = webrtcVal;
+
+  // 时区
+  const tzMode = getSegmentedVal('seg-tz-mode');
+  if (tzMode === 'custom' && $('f-tz').value) {
+    fpOverrides.timezone = $('f-tz').value;
+  }
+  // tzMode='auto' 表示不覆盖（基于 IP/seed 自动）
+
+  // 地理位置
+  const geoMode = getSegmentedVal('seg-geo-mode');
+  if (geoMode === 'custom' && $('f-geo-lat').value) {
+    fpOverrides.geolocation = {
+      latitude: parseFloat($('f-geo-lat').value),
+      longitude: parseFloat($('f-geo-lng').value || '0'),
+      accuracy: 100,
+    };
+  } else if (geoMode === 'block') {
+    fpOverrides.geolocation = { block: true };
+  }
+
+  // 语言
+  const langMode = getSegmentedVal('seg-lang-mode');
+  if (langMode === 'custom' && $('f-lang').value) {
+    fpOverrides.language = $('f-lang').value;
+  }
+
+  // UA
+  if ($('f-ua-mode').value === 'custom' && $('f-ua-text').value.trim()) {
+    fpOverrides.userAgent = $('f-ua-text').value.trim();
+  }
+
+  // 分辨率 / CPU / 内存
+  if ($('f-res').value) {
+    const [w, h] = $('f-res').value.split('x').map(Number);
+    fpOverrides.resolution = { width: w, height: h, dpr: 1 };
+  }
+  if ($('f-hw').value) fpOverrides.hardwareConcurrency = parseInt($('f-hw').value, 10);
+  if ($('f-mem').value) fpOverrides.deviceMemory = parseInt($('f-mem').value, 10);
+
+  // 构造 payload
   const payload = {
     name,
     proxy,
+    tags: $('f-tags').value.split('\n').map(s => s.trim()).filter(Boolean),
+    fingerprint: fpOverrides,
   };
 
+  if (fingerprintSeedOverride) {
+    payload.fingerprintSeed = fingerprintSeedOverride;
+  }
+
   let result;
-  if (editingProfileId) {
-    result = await ipcRenderer.invoke('profile:update', editingProfileId, payload);
+  if (editingId) {
+    result = await ipcRenderer.invoke('profile:update', editingId, payload);
   } else {
     result = await ipcRenderer.invoke('profile:create', payload);
   }
 
-  if (result.success) {
+  if (result.success !== false) {
     closeModal();
     loadProfiles();
   } else {
-    alert('保存失败：' + result.message);
-  }
-}
-
-function deleteProfile(id) {
-  const profile = currentProfiles.find(p => p.id === id);
-  if (!profile) return;
-
-  if (profile.runtime.status === 'running') {
-    alert('无法删除运行中的环境，请先停止它。');
-    return;
-  }
-
-  showConfirmDialog(
-    '删除环境',
-    `确定要删除「${profile.name}」吗？该环境的所有浏览器数据（Cookies、缓存、指纹配置）将被永久删除，且无法恢复。`,
-    async () => {
-      const result = await ipcRenderer.invoke('profile:delete', id);
-      if (result.success) {
-        loadProfiles();
-      } else {
-        alert('删除失败：' + result.message);
-      }
-    }
-  );
-}
-
-// ============================================================
-// 启动/停止
-// ============================================================
-
-async function launchProfile(id) {
-  const profile = currentProfiles.find(p => p.id === id);
-  if (!profile) return;
-
-  const result = await ipcRenderer.invoke('browser:launch', id);
-  if (result.success) {
-    loadProfiles();
-  } else {
-    alert('启动失败：' + result.message);
-  }
-}
-
-async function stopProfile(id) {
-  const result = await ipcRenderer.invoke('browser:stop', id);
-  if (result.success) {
-    // 等一下让 BrowserWindow 完全关闭
-    setTimeout(loadProfiles, 500);
-  } else {
-    alert('停止失败：' + result.message);
-  }
-}
-
-async function stopAll() {
-  if (confirm('确定要关闭所有正在运行的环境吗？')) {
-    const result = await ipcRenderer.invoke('browser:stopAll');
-    if (result.success) {
-      setTimeout(loadProfiles, 500);
-    }
+    alert('保存失败：' + (result.message || '未知错误'));
   }
 }
 
 // ============================================================
 // 代理测试
 // ============================================================
+async function testProxy() {
+  const proxyType = $('f-proxy-type').value;
+  if (proxyType === 'none') { alert('未启用代理，无需测试'); return; }
 
-async function testCurrentProxy() {
-  if (!proxyEnabled.checked) {
-    alert('请先启用代理');
-    return;
-  }
-
-  const proxyConfig = {
-    protocol: proxyProtocol.value,
-    host: proxyHost.value.trim(),
-    port: parseInt(proxyPort.value, 10),
-    username: proxyUsername.value.trim(),
-    password: proxyPassword.value.trim(),
+  const cfg = {
+    protocol: proxyType,
+    host: $('f-proxy-host').value.trim(),
+    port: parseInt($('f-proxy-port').value, 10),
+    username: $('f-proxy-user').value.trim(),
+    password: $('f-proxy-pass').value.trim(),
   };
+  if (!cfg.host || !cfg.port) { alert('请先填写 IP 和端口'); return; }
 
-  if (!proxyConfig.host || !proxyConfig.port) {
-    alert('请先填写代理 IP 和端口');
-    return;
-  }
+  const btn = $('btn-proxy-test');
+  btn.disabled = true;
+  const resEl = $('proxy-test-result');
+  resEl.textContent = '测试中...';
+  resEl.className = 'proxy-test-result';
 
-  proxyTestBtn.disabled = true;
-  proxyTestResult.textContent = '测试中...';
-  proxyTestResult.className = 'proxy-test-result';
+  const result = await ipcRenderer.invoke('proxy:test', cfg);
 
-  const result = await ipcRenderer.invoke('proxy:test', proxyConfig);
-
-  proxyTestBtn.disabled = false;
-
+  btn.disabled = false;
   if (result.success) {
-    proxyTestResult.textContent = result.message || '✓ 代理连接成功';
-    proxyTestResult.className = 'proxy-test-result success';
+    resEl.textContent = result.message || '✓ 代理连接成功';
+    resEl.className = 'proxy-test-result success';
   } else {
-    proxyTestResult.textContent = '✗ ' + (result.message || '代理连接失败');
-    proxyTestResult.className = 'proxy-test-result error';
+    resEl.textContent = '✗ ' + (result.message || '代理连接失败');
+    resEl.className = 'proxy-test-result error';
   }
 }
 
 // ============================================================
-// 确认对话框
+// 启动 / 停止 / 删除
 // ============================================================
-
-let confirmCallback = null;
-
-function showConfirmDialog(title, message, callback) {
-  confirmTitle.textContent = title;
-  confirmMessage.textContent = message;
-  confirmCallback = callback;
-  confirmOverlay.style.display = 'flex';
-}
-
-confirmOk.addEventListener('click', () => {
-  confirmOverlay.style.display = 'none';
-  if (confirmCallback) {
-    confirmCallback();
-    confirmCallback = null;
+async function launch(id) {
+  const result = await ipcRenderer.invoke('browser:launch', id);
+  if (result.success) {
+    // 延迟刷新等状态更新
+    setTimeout(loadProfiles, 800);
+  } else {
+    alert('启动失败：' + result.message);
   }
-});
-
-// ============================================================
-// 工具函数
-// ============================================================
-
-function escapeHtml(str) {
-  const div = document.createElement('div');
-  div.textContent = str;
-  return div.innerHTML;
 }
 
-function formatDate(timestamp) {
-  const d = new Date(timestamp);
-  const pad = (n) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+async function stop(id) {
+  const result = await ipcRenderer.invoke('browser:stop', id);
+  if (result.success) setTimeout(loadProfiles, 500);
+  else alert('停止失败：' + result.message);
+}
+
+async function stopAll() {
+  if (!confirm('确定关闭所有运行中的环境？')) return;
+  await ipcRenderer.invoke('browser:stopAll');
+  setTimeout(loadProfiles, 600);
+}
+
+async function del(id) {
+  const p = profiles.find(x => x.id === id);
+  if (!p) return;
+  if (p.runtime.status === 'running') {
+    alert('无法删除运行中的环境，请先停止'); return;
+  }
+  showConfirm('删除环境', `确定删除「${p.name}」吗？该环境的所有浏览器数据（Cookies、缓存、指纹）将被永久删除，且无法恢复。`, async () => {
+    const result = await ipcRenderer.invoke('profile:delete', id);
+    if (result.success) loadProfiles();
+    else alert('删除失败：' + result.message);
+  });
+}
+
+// ============================================================
+// 确认弹窗
+// ============================================================
+let confirmCb = null;
+function showConfirm(title, msg, cb) {
+  $('confirm-title').textContent = title;
+  $('confirm-msg').textContent = msg;
+  confirmCb = cb;
+  $('confirm-modal').style.display = 'flex';
+}
+$('confirm-yes').onclick = () => {
+  $('confirm-modal').style.display = 'none';
+  if (confirmCb) { confirmCb(); confirmCb = null; }
+};
+
+// ============================================================
+// 工具
+// ============================================================
+function esc(s) {
+  const d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
 }

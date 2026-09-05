@@ -151,11 +151,11 @@ function pick(arr, rng) {
 // ============================================================
 
 /**
- * 为指定 seed 生成一套完整的指纹配置
+ * 生成指纹配置
  * @param {string} seed - 唯一种子（通常是 profileId）
- * @returns {Object} 指纹配置对象，可直接传给 preload 脚本和 CDP
+ * @param {Object} [overrides] - 用户自定义覆盖项（来自 profile.fingerprint），空对象表示全自动
  */
-function generateFingerprint(seed) {
+function generateFingerprint(seed, overrides = {}) {
   const rng = createRNG(seed);
 
   const ua = pick(UA_POOL, rng);
@@ -168,55 +168,60 @@ function generateFingerprint(seed) {
   const webgl = pick(WEBGL_RENDERER_POOL, rng);
   const fonts = pick(FONT_POOL, rng);
 
+  // 用户自定义覆盖优先于 seed 随机
+  const fp = overrides || {};
+  const customUA = fp.userAgent ? { ua: fp.userAgent, platform: fp.platform || ua.platform, vendor: fp.vendor || ua.vendor, appVersion: fp.appVersion || ua.appVersion } : ua;
+  const customScreen = fp.resolution ? { width: fp.resolution.width, height: fp.resolution.height, dpr: fp.resolution.dpr || 1 } : screen;
+  const customTz = fp.timezone ? { id: fp.timezone, offset: TIMEZONE_OFFSET_TABLE[fp.timezone] ?? 0 } : tz;
+  const customLang = fp.language ? { language: fp.language, languages: fp.languages || [fp.language] } : lang;
+  const customGeo = (fp.geolocation && fp.geolocation.latitude !== undefined) ? { latitude: fp.geolocation.latitude, longitude: fp.geolocation.longitude, accuracy: fp.geolocation.accuracy || 100 } : geo;
+
   return {
     enabled: true,
     profileId: seed,
 
-    // Navigator
-    userAgent: ua.ua,
-    platform: ua.platform,
-    vendor: ua.vendor,
-    appVersion: ua.appVersion,
+    userAgent: customUA.ua,
+    platform: customUA.platform,
+    vendor: customUA.vendor,
+    appVersion: customUA.appVersion,
     appName: 'Netscape',
     appCodeName: 'Mozilla',
-    language: lang.language,
-    languages: lang.languages,
-    hardwareConcurrency: hwConcurrency,
-    deviceMemory: deviceMemory,
+    language: customLang.language,
+    languages: customLang.languages,
+    hardwareConcurrency: fp.hardwareConcurrency ?? hwConcurrency,
+    deviceMemory: fp.deviceMemory ?? deviceMemory,
     maxTouchPoints: 0,
 
-    // Screen
     screen: {
-      width: screen.width,
-      height: screen.height,
+      width: customScreen.width,
+      height: customScreen.height,
       colorDepth: 24,
       pixelDepth: 24,
     },
-    devicePixelRatio: screen.dpr,
+    devicePixelRatio: customScreen.dpr,
 
-    // Canvas 噪声
     canvasNoise: true,
 
-    // WebGL
     webgl: {
-      vendor: webgl.vendor,
-      renderer: webgl.renderer,
-      version: webgl.version,
-      shadingLanguageVersion: webgl.glslVersion,
+      vendor: (fp.webgl && fp.webgl.vendor) || webgl.vendor,
+      renderer: (fp.webgl && fp.webgl.renderer) || webgl.renderer,
+      version: (fp.webgl && fp.webgl.version) || webgl.version,
+      shadingLanguageVersion: (fp.webgl && fp.webgl.shadingLanguageVersion) || webgl.glslVersion,
     },
 
-    // 字体列表
-    fonts: fonts,
+    fonts: (fp.fonts && fp.fonts.length) ? fp.fonts : fonts,
 
-    // 时区
-    timezone: tz.id,
-    timezoneOffset: tz.offset,
+    timezone: customTz.id,
+    timezoneOffset: customTz.offset,
 
-    // 地理定位
-    geolocation: geo,
+    geolocation: customGeo,
+
+    webRTC: fp.webRTC || 'disable',  // disable / proxy / real
   };
 }
 
-module.exports = {
-  generateFingerprint,
-};
+// 简单时区偏移表（fallback，CDP 会精确设置 ICU）
+const TIMEZONE_OFFSET_TABLE = {};
+for (const tz of TIMEZONE_POOL) TIMEZONE_OFFSET_TABLE[tz.id] = tz.offset;
+
+module.exports = { generateFingerprint };

@@ -49,6 +49,7 @@ class BrowserLauncher {
    * @returns {Promise<BrowserWindow>}
    */
   async launch(profileId) {
+    console.log(`[BrowserLauncher] launch() 开始 profileId=${profileId}`);
     const profile = this.profileManager.get(profileId);
     if (!profile) throw new Error(`Profile not found: ${profileId}`);
 
@@ -56,6 +57,7 @@ class BrowserLauncher {
     if (profile.runtime.status === 'running') {
       const entry = this.activeWindows.get(profileId);
       if (entry && !entry.window.isDestroyed()) {
+        console.log(`[BrowserLauncher] 已在运行，返回已有窗口`);
         entry.window.focus();
         return entry.window;
       }
@@ -100,15 +102,17 @@ class BrowserLauncher {
     const { pacUrl, filePath } = writePAC(
       this.profileManager.getPacDir(),
       profileId,
-      pacProxyConfig || { protocol: 'http', host: '127.0.0.1', port: 1 }
+      pacProxyConfig  // null = 无代理，生成全部 DIRECT 的 PAC；否则走本地 relay
     );
 
     console.log(`[BrowserLauncher] PAC file: ${filePath}`);
 
     // ============================================================
     // 3. 生成指纹配置（同一 seed 永远相同，不同 seed 互不相同）
+    //    profile.fingerprint 里的用户自定义覆盖优先于 seed 随机值
     // ============================================================
-    const fingerprintConfig = generateFingerprint(profile.fingerprintSeed);
+    const fingerprintConfig = generateFingerprint(profile.fingerprintSeed, profile.fingerprint || {});
+    console.log(`[BrowserLauncher] Fingerprint generated (seed=${profile.fingerprintSeed.substring(0,8)}, customKeys=${Object.keys(profile.fingerprint || {}).join(',') || 'none'})`);
 
     // ============================================================
     // 4. 创建 BrowserWindow + 独立 session
@@ -141,6 +145,23 @@ class BrowserLauncher {
     };
 
     const win = new BrowserWindow(windowConfig);
+    console.log(`[BrowserLauncher] BrowserWindow created id=${win.id}`);
+
+    // ============================================================
+    // 4.5 把 renderer 的 console/error 转发到主进程日志
+    //    这样 preload 里的 [Fingerprint Preload] 日志和 CDP Inject 日志
+    //    会直接出现在主进程命令行里，方便调试
+    // ============================================================
+    win.webContents.on('console-message', (_evt, level, msg, line, src) => {
+      const tag = level === 2 ? 'WARN' : level === 3 ? 'ERROR' : 'INFO';
+      // 只打印指纹相关和 error，避免太吵
+      if (msg.includes('[Fingerprint') || msg.includes('[CDP') || level >= 2 || msg.includes('Executing')) {
+        console.log(`  [Win${win.id} renderer ${tag}] ${msg}`);
+      }
+    });
+    win.webContents.on('render-process-gone', (_evt, details) => {
+      console.error(`[Win${win.id}] renderer process gone: ${details.reason}`);
+    });
 
     // ============================================================
     // 5. 设置代理（仅限当前 session —— Electron 的核心隔离机制）
@@ -161,20 +182,31 @@ class BrowserLauncher {
     }
 
     // ============================================================
-    // 6. CDP 内核级指纹覆盖
+    // 6. 加载页面（先让 BrowserWindow 显示出来，用户体验优先）
+    //    preload 脚本已经覆盖了 JS API 层指纹，CDP 可以异步跑
     // ============================================================
-    try {
-      await applyCDPFingerprint(win.webContents, fingerprintConfig);
-      console.log('[BrowserLauncher] CDP fingerprint applied');
-    } catch (err) {
-      console.warn('[BrowserLauncher] CDP fingerprint failed:', err.message);
-    }
+    console.log(`[BrowserLauncher] Loading home page: ${HOME_PAGE_PATH}`);
+    win.loadFile(HOME_PAGE_PATH);
+    console.log(`[BrowserLauncher] loadFile called, window ID=${win.id}`);
 
     // ============================================================
-    // 7. 加载本地导航首页 —— 点击按钮 / 快速卡片 / 地址栏都用 window.location 跳转
-    //    所有网络请求经过当前 session 的代理（由前面 session.setProxy 设置）
+    // 7. CDP 内核级指纹覆盖（异步跑，超时不阻塞）
+    //    放在 loadFile 之后，此时 target 已就绪，CDP 命令不会挂住
+    //    但用 race 超时保护，极端情况也不影响窗口使用
     // ============================================================
-    win.loadFile(HOME_PAGE_PATH);
+    (async () => {
+      try {
+        // 等 renderer 启动 + 页面 load 的一段时间，让 CDP target 完全就绪
+        await new Promise(r => setTimeout(r, 500));
+        await Promise.race([
+          applyCDPFingerprint(win.webContents, fingerprintConfig),
+          new Promise((_, rej) => setTimeout(() => rej(new Error('CDP overall timeout')), 8000)),
+        ]);
+        console.log('[BrowserLauncher] CDP fingerprint applied');
+      } catch (err) {
+        console.warn('[BrowserLauncher] CDP fingerprint failed (non-fatal):', err.message);
+      }
+    })();
 
     // ============================================================
     // 8. 跟踪 + 生命周期清理
@@ -189,11 +221,11 @@ class BrowserLauncher {
     win.on('closed', async () => {
       console.log(`[BrowserLauncher] Window closed: ${profile.name} (${profileId})`);
 
-      // 停止本地代理中继
+      // 如果是用户手动点 X 关闭（不是 stop() 调的），这里做兜底清理
+      // stop() 也会处理 relay/activeWindows，没关系，多做一次不会错
       if (relay) {
-        try { await relay.stop(); } catch (e) { console.warn('[BrowserLauncher] relay stop error:', e.message); }
+        try { await relay.stop(); } catch (e) { /* 可能已停止 */ }
       }
-
       this.activeWindows.delete(profileId);
       this.profileManager.updateRuntime(profileId, {
         status: 'stopped',
@@ -217,15 +249,20 @@ class BrowserLauncher {
 
     const { window, relay } = entry;
 
-    if (!window.isDestroyed()) {
-      window.close();
-    } else {
-      if (relay) {
-        try { await relay.stop(); } catch (e) {}
-      }
-      this.activeWindows.delete(profileId);
+    if (relay) {
+      try { await relay.stop(); } catch (e) { /* relay 可能已停止 */ }
     }
 
+    if (!window.isDestroyed()) {
+      window.close();
+      // 等 Chromium 真正销毁（最多 2 秒）
+      await Promise.race([
+        new Promise((resolve) => window.once('closed', resolve)),
+        new Promise((resolve) => setTimeout(resolve, 2000)),
+      ]);
+    }
+
+    this.activeWindows.delete(profileId);
     this.profileManager.updateRuntime(profileId, { status: 'stopped', windowId: null, relayPort: null });
   }
 

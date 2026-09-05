@@ -3,13 +3,13 @@
 <head>
   <meta charset="UTF-8">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self' https: http: data: blob: 'unsafe-inline' 'unsafe-eval'; img-src 'self' https: http: data:;">
-  <title>Fingerprint Browser - 导航</title>
+  <title>指纹浏览器</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif;
-      background: #0f0f1a;
-      color: #e2e8f0;
+      font-family: 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', -apple-system, sans-serif;
+      background: #202124;
+      color: #e8eaed;
       min-height: 100vh;
       display: flex;
       flex-direction: column;
@@ -17,230 +17,232 @@
 
     /* ===== 顶部导航栏 ===== */
     .nav-bar {
-      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
-      border-bottom: 1px solid #334155;
-      padding: 10px 20px;
+      background: #292a2d;
+      border-bottom: 1px solid #3c4043;
+      padding: 8px 20px;
       display: flex;
       align-items: center;
-      gap: 12px;
+      gap: 16px;
       flex-wrap: wrap;
     }
     .nav-brand {
-      font-size: 14px;
-      font-weight: 700;
-      background: linear-gradient(135deg, #6366f1, #a78bfa);
-      -webkit-background-clip: text;
-      -webkit-text-fill-color: transparent;
-      background-clip: text;
-      margin-right: 8px;
+      font-size: 13px;
+      font-weight: 500;
+      color: #9aa0a6;
       display: flex;
       align-items: center;
-      gap: 6px;
+      gap: 8px;
+      white-space: nowrap;
     }
-    .nav-brand-icon { font-size: 16px; }
-
+    .nav-brand::before {
+      content: '';
+      width: 16px; height: 16px;
+      border-radius: 50%;
+      background: conic-gradient(#4285f4 0 25%, #ea4335 25% 50%, #fbbc05 50% 75%, #34a853 75% 100%);
+      display: inline-block;
+    }
     .nav-buttons {
       display: flex;
-      gap: 6px;
+      gap: 4px;
       flex-wrap: wrap;
       flex: 1;
     }
-
     .nav-btn {
       display: inline-flex;
       align-items: center;
       gap: 5px;
       padding: 6px 12px;
-      border-radius: 6px;
-      background: rgba(255,255,255,0.04);
-      border: 1px solid transparent;
-      color: #cbd5e1;
+      border-radius: 4px;
+      color: #9aa0a6;
       font-size: 12px;
       font-weight: 500;
       cursor: pointer;
-      transition: all 0.18s ease;
+      transition: all 0.15s;
       text-decoration: none;
       white-space: nowrap;
     }
-    .nav-btn:hover {
-      background: rgba(99,102,241,0.15);
-      border-color: rgba(99,102,241,0.4);
-      color: #a5b4fc;
-      transform: translateY(-1px);
-    }
-    .nav-btn:active { transform: translateY(0); }
-    .nav-btn .nav-icon { font-size: 14px; line-height: 1; }
+    .nav-btn:hover { background: #303134; color: #e8eaed; }
+    .nav-icon { width: 16px; height: 16px; border-radius: 3px; object-fit: contain; }
 
-    /* ===== 地址栏 ===== */
-    .address-bar-wrap {
-      background: #0f0f1a;
-      border-bottom: 1px solid #334155;
-      padding: 8px 20px;
-      display: flex;
-      gap: 8px;
-    }
-    .address-bar {
-      flex: 1;
-      background: #1a1a2e;
-      border: 1px solid #334155;
-      border-radius: 8px;
-      padding: 8px 14px;
-      color: #e2e8f0;
-      font-size: 13px;
-      outline: none;
-      transition: border-color 0.2s;
-    }
-    .address-bar:focus { border-color: #6366f1; }
-    .address-bar::placeholder { color: #64748b; }
-    .go-btn {
-      padding: 8px 18px;
-      background: #6366f1;
-      border: none;
-      border-radius: 8px;
-      color: white;
-      font-size: 13px;
-      font-weight: 600;
-      cursor: pointer;
-      transition: background 0.15s;
-    }
-    .go-btn:hover { background: #818cf8; }
-
-    /* ===== 欢迎区 ===== */
+    /* ===== 欢迎区（谷歌新标签页风格） ===== */
     .welcome {
       flex: 1;
       display: flex;
       flex-direction: column;
       align-items: center;
       justify-content: center;
-      text-align: center;
       padding: 40px 20px;
     }
-    .welcome-emoji { font-size: 64px; margin-bottom: 16px; }
-    .welcome h1 {
-      font-size: 24px;
-      margin-bottom: 8px;
-      background: linear-gradient(135deg, #6366f1, #ec4899);
-      -webkit-background-clip: text;
-      -webkit-text-fill-color: transparent;
-      background-clip: text;
+    .brand-logo {
+      font-size: 40px;
+      font-weight: 500;
+      letter-spacing: -1px;
+      margin-bottom: 24px;
     }
-    .welcome p { color: #94a3b8; font-size: 14px; }
-    .welcome .sub-hint { margin-top: 8px; font-size: 12px; color: #64748b; }
+    .brand-logo .g { color: #4285f4; }
+    .brand-logo .o1 { color: #ea4335; }
+    .brand-logo .o2 { color: #fbbc05; }
+    .brand-logo .g2 { color: #4285f4; }
+    .brand-logo .l { color: #34a853; }
+    .brand-logo .e { color: #ea4335; }
 
-    /* ===== 快速启动卡片（两行） ===== */
+    /* ===== 搜索框 ===== */
+    .search-wrap {
+      width: 100%;
+      max-width: 560px;
+      position: relative;
+      margin-bottom: 32px;
+    }
+    .search-box {
+      width: 100%;
+      background: #303134;
+      border: 1px solid #3c4043;
+      border-radius: 24px;
+      padding: 12px 48px 12px 20px;
+      color: #e8eaed;
+      font-size: 14px;
+      outline: none;
+      transition: all 0.2s;
+    }
+    .search-box:hover { background: #3c4043; }
+    .search-box:focus { background: #3c4043; border-color: #8ab4f8; box-shadow: 0 1px 6px rgba(0,0,0,0.3); }
+    .search-box::placeholder { color: #9aa0a6; }
+    .go-btn {
+      position: absolute;
+      right: 6px; top: 50%;
+      transform: translateY(-50%);
+      width: 34px; height: 34px;
+      background: #8ab4f8;
+      border: none;
+      border-radius: 50%;
+      color: #202124;
+      font-size: 14px;
+      cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      transition: background 0.15s;
+    }
+    .go-btn:hover { background: #aecbfa; }
+
+    /* ===== 快捷图标（圆形，谷歌风格） ===== */
     .quick-grid {
-      margin-top: 36px;
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
       gap: 12px;
-      max-width: 900px;
+      max-width: 680px;
       width: 100%;
     }
     .quick-card {
-      background: #1a1a2e;
-      border: 1px solid #334155;
-      border-radius: 12px;
-      padding: 16px 14px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+      padding: 16px 8px;
       cursor: pointer;
-      transition: all 0.18s ease;
-      text-align: center;
+      border-radius: 8px;
+      transition: all 0.15s;
     }
-    .quick-card:hover {
-      border-color: #6366f1;
-      background: #222242;
-      transform: translateY(-2px);
-      box-shadow: 0 8px 24px rgba(99,102,241,0.18);
+    .quick-card:hover { background: #303134; }
+    .quick-icon {
+      width: 48px; height: 48px;
+      border-radius: 12px;
+      object-fit: contain;
+      display: block;
+      transition: transform 0.15s;
     }
-    .quick-icon { font-size: 28px; margin-bottom: 6px; }
-    .quick-name { font-size: 13px; font-weight: 600; color: #e2e8f0; }
+    .quick-card:hover .quick-icon { transform: scale(1.06); }
+    .quick-name {
+      font-size: 12px;
+      color: #e8eaed;
+      white-space: nowrap;
+      max-width: 88px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
 
-    /* ===== 底部状态 ===== */
+    /* ===== 底部状态栏 ===== */
     .status-bar {
-      padding: 8px 20px;
-      background: #0f0f1a;
-      border-top: 1px solid #334155;
-      font-size: 11px;
-      color: #64748b;
+      padding: 10px 24px;
+      background: #292a2d;
+      border-top: 1px solid #3c4043;
+      font-size: 12px;
+      color: #9aa0a6;
       display: flex;
       justify-content: space-between;
     }
     .status-dot {
       display: inline-block;
-      width: 6px; height: 6px; border-radius: 50%;
-      background: #4ade80;
-      margin-right: 5px;
+      width: 8px; height: 8px; border-radius: 50%;
+      background: #34a853;
+      margin-right: 6px;
     }
   </style>
 </head>
 <body>
 
-  <!-- 顶部品牌栏 -->
+  <!-- 顶部导航栏 -->
   <div class="nav-bar">
-    <div class="nav-brand"><span class="nav-brand-icon">🔒</span> 指纹浏览器</div>
-
+    <div class="nav-brand">指纹浏览器</div>
     <div class="nav-buttons">
-      <a class="nav-btn" href="https://www.tiktok.com" target="_self"><span class="nav-icon">🎵</span>TikTok</a>
-      <a class="nav-btn" href="https://www.youtube.com" target="_self"><span class="nav-icon">▶️</span>YouTube</a>
-      <a class="nav-btn" href="https://x.com" target="_self"><span class="nav-icon">𝕏</span>X / Twitter</a>
-      <a class="nav-btn" href="https://www.instagram.com" target="_self"><span class="nav-icon">📷</span>Instagram</a>
-      <a class="nav-btn" href="https://www.facebook.com" target="_self"><span class="nav-icon">👍</span>Facebook</a>
-      <a class="nav-btn" href="https://www.threads.net" target="_self"><span class="nav-icon">🧵</span>Threads</a>
-      <a class="nav-btn" href="https://www.pinterest.com" target="_self"><span class="nav-icon">📌</span>Pinterest</a>
-      <a class="nav-btn" href="https://chatgpt.com" target="_self"><span class="nav-icon">🤖</span>ChatGPT</a>
-      <a class="nav-btn" href="https://gemini.google.com" target="_self"><span class="nav-icon">✨</span>Gemini</a>
-      <a class="nav-btn" href="https://ip.cn" target="_self"><span class="nav-icon">🌐</span>检测IP</a>
+      <a class="nav-btn" href="https://www.tiktok.com"><img class="nav-icon" src="assets/icons/tiktok_com.png" alt="">TikTok</a>
+      <a class="nav-btn" href="https://www.youtube.com"><img class="nav-icon" src="assets/icons/youtube_com.png" alt="">YouTube</a>
+      <a class="nav-btn" href="https://x.com"><img class="nav-icon" src="assets/icons/x_com.png" alt="">X</a>
+      <a class="nav-btn" href="https://www.instagram.com"><img class="nav-icon" src="assets/icons/instagram_com.png" alt="">Instagram</a>
+      <a class="nav-btn" href="https://www.facebook.com"><img class="nav-icon" src="assets/icons/facebook_com.png" alt="">Facebook</a>
+      <a class="nav-btn" href="https://www.threads.net"><img class="nav-icon" src="assets/icons/threads_net.png" alt="">Threads</a>
+      <a class="nav-btn" href="https://www.pinterest.com"><img class="nav-icon" src="assets/icons/pinterest_com.png" alt="">Pinterest</a>
+      <a class="nav-btn" href="https://chatgpt.com"><img class="nav-icon" src="assets/icons/chatgpt_com.png" alt="">ChatGPT</a>
+      <a class="nav-btn" href="https://gemini.google.com"><img class="nav-icon" src="assets/icons/gemini_google_com.png" alt="">Gemini</a>
+      <a class="nav-btn" href="https://ip.cn"><img class="nav-icon" src="assets/icons/ip_cn.png" alt="">检测IP</a>
     </div>
   </div>
 
-  <!-- 地址栏 -->
-  <div class="address-bar-wrap">
-    <input type="text" class="address-bar" id="address" placeholder="输入网址… 例如 https://example.com" autocomplete="off" spellcheck="false">
-    <button class="go-btn" id="goBtn">前往</button>
-  </div>
-
-  <!-- 欢迎 + 快速启动 -->
+  <!-- 欢迎 + 搜索 + 快捷图标 -->
   <div class="welcome">
-    <div class="welcome-emoji">🌐</div>
-    <h1>准备好跨境业务</h1>
-    <p>点击下方卡片或上方导航按钮即可快速进入目标网站</p>
-    <p class="sub-hint">所有网络请求走独立代理，与宿主机完全隔离</p>
+    <div class="brand-logo">
+      <span class="g">G</span><span class="o1">o</span><span class="o2">o</span><span class="g2">g</span><span class="l">l</span><span class="e">e</span>
+    </div>
+
+    <div class="search-wrap">
+      <input type="text" class="search-box" id="address" placeholder="搜索或输入网址" autocomplete="off" spellcheck="false">
+      <button class="go-btn" id="goBtn" title="前往">➜</button>
+    </div>
 
     <div class="quick-grid">
       <div class="quick-card" data-url="https://www.tiktok.com">
-        <div class="quick-icon">🎵</div><div class="quick-name">TikTok</div>
+        <img class="quick-icon" src="assets/icons/tiktok_com.png" alt=""><div class="quick-name">TikTok</div>
       </div>
       <div class="quick-card" data-url="https://www.youtube.com">
-        <div class="quick-icon">▶️</div><div class="quick-name">YouTube</div>
+        <img class="quick-icon" src="assets/icons/youtube_com.png" alt=""><div class="quick-name">YouTube</div>
       </div>
       <div class="quick-card" data-url="https://x.com">
-        <div class="quick-icon">𝕏</div><div class="quick-name">X / Twitter</div>
+        <img class="quick-icon" src="assets/icons/x_com.png" alt=""><div class="quick-name">X</div>
       </div>
       <div class="quick-card" data-url="https://www.instagram.com">
-        <div class="quick-icon">📷</div><div class="quick-name">Instagram</div>
+        <img class="quick-icon" src="assets/icons/instagram_com.png" alt=""><div class="quick-name">Instagram</div>
       </div>
       <div class="quick-card" data-url="https://www.facebook.com">
-        <div class="quick-icon">👍</div><div class="quick-name">Facebook</div>
+        <img class="quick-icon" src="assets/icons/facebook_com.png" alt=""><div class="quick-name">Facebook</div>
       </div>
       <div class="quick-card" data-url="https://www.threads.net">
-        <div class="quick-icon">🧵</div><div class="quick-name">Threads</div>
+        <img class="quick-icon" src="assets/icons/threads_net.png" alt=""><div class="quick-name">Threads</div>
       </div>
       <div class="quick-card" data-url="https://www.pinterest.com">
-        <div class="quick-icon">📌</div><div class="quick-name">Pinterest</div>
+        <img class="quick-icon" src="assets/icons/pinterest_com.png" alt=""><div class="quick-name">Pinterest</div>
       </div>
       <div class="quick-card" data-url="https://chatgpt.com">
-        <div class="quick-icon">🤖</div><div class="quick-name">ChatGPT</div>
+        <img class="quick-icon" src="assets/icons/chatgpt_com.png" alt=""><div class="quick-name">ChatGPT</div>
       </div>
       <div class="quick-card" data-url="https://gemini.google.com">
-        <div class="quick-icon">✨</div><div class="quick-name">Gemini</div>
+        <img class="quick-icon" src="assets/icons/gemini_google_com.png" alt=""><div class="quick-name">Gemini</div>
       </div>
       <div class="quick-card" data-url="https://ip.cn">
-        <div class="quick-icon">🌐</div><div class="quick-name">我的IP</div>
+        <img class="quick-icon" src="assets/icons/ip_cn.png" alt=""><div class="quick-name">我的IP</div>
       </div>
       <div class="quick-card" data-url="https://browserleaks.com">
-        <div class="quick-icon">🔍</div><div class="quick-name">指纹检测</div>
+        <img class="quick-icon" src="assets/icons/browserleaks_com.png" alt=""><div class="quick-name">指纹检测</div>
       </div>
       <div class="quick-card" data-url="https://whoer.net">
-        <div class="quick-icon">🕵️</div><div class="quick-name">隐私检测</div>
+        <img class="quick-icon" src="assets/icons/whoer_net.png" alt=""><div class="quick-name">隐私检测</div>
       </div>
     </div>
   </div>
@@ -252,7 +254,6 @@
   </div>
 
   <script>
-    // 让顶部导航和快速卡片都用 window.location 跳转（当前窗口）
     document.querySelectorAll('.nav-btn').forEach(btn => {
       btn.addEventListener('click', (e) => {
         e.preventDefault();
@@ -268,7 +269,6 @@
       });
     });
 
-    // 地址栏跳转
     const addr = document.getElementById('address');
     const goBtn = document.getElementById('goBtn');
 
@@ -276,7 +276,6 @@
       let url = addr.value.trim();
       if (!url) return;
       if (!/^https?:\/\//i.test(url) && !/^ftp:\/\//i.test(url)) {
-        // 如果看起来是域名（包含点），补 https://；否则走 Google 搜索
         if (/\./.test(url) && !/\s/.test(url)) {
           url = 'https://' + url;
         } else {
