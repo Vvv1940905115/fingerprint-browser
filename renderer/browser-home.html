@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self' https: http: data: blob: 'unsafe-inline' 'unsafe-eval'; img-src 'self' https: http: data:;">
+  <title>关联浏览器</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', -apple-system, sans-serif;
+      background: #202124;
+      color: #e8eaed;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* ===== 顶部导航栏 ===== */
+    .nav-bar {
+      background: #292a2d;
+      border-bottom: 1px solid #3c4043;
+      padding: 8px 20px;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+    .nav-brand {
+      font-size: 13px;
+      font-weight: 500;
+      color: #9aa0a6;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      white-space: nowrap;
+    }
+    .nav-brand::before {
+      content: '';
+      width: 16px; height: 16px;
+      border-radius: 50%;
+      background: conic-gradient(#4285f4 0 25%, #ea4335 25% 50%, #fbbc05 50% 75%, #34a853 75% 100%);
+      display: inline-block;
+    }
+    .nav-buttons {
+      display: flex;
+      gap: 4px;
+      flex-wrap: wrap;
+      flex: 1;
+    }
+    .nav-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 6px 12px;
+      border-radius: 4px;
+      color: #9aa0a6;
+      font-size: 12px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.15s;
+      text-decoration: none;
+      white-space: nowrap;
+    }
+    .nav-btn:hover { background: #303134; color: #e8eaed; }
+    .nav-icon { width: 16px; height: 16px; border-radius: 3px; object-fit: contain; }
+
+    /* ===== 欢迎区（谷歌新标签页风格） ===== */
+    .welcome {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 40px 20px;
+    }
+    .brand-logo {
+      margin-bottom: 24px;
+      display: flex; align-items: center; gap: 14px;
+    }
+    .brand-logo img {
+      width: 64px; height: 64px;
+      border-radius: 12px;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.15);
+    }
+    .brand-logo .brand-name {
+      font-size: 30px; font-weight: 600; color: #3c4043; letter-spacing: -0.5px;
+    }
+
+    /* ===== 搜索框 ===== */
+    .search-wrap {
+      width: 100%;
+      max-width: 560px;
+      position: relative;
+      margin-bottom: 32px;
+    }
+    .search-box {
+      width: 100%;
+      background: #303134;
+      border: 1px solid #3c4043;
+      border-radius: 24px;
+      padding: 12px 48px 12px 20px;
+      color: #e8eaed;
+      font-size: 14px;
+      outline: none;
+      transition: all 0.2s;
+    }
+    .search-box:hover { background: #3c4043; }
+    .search-box:focus { background: #3c4043; border-color: #8ab4f8; box-shadow: 0 1px 6px rgba(0,0,0,0.3); }
+    .search-box::placeholder { color: #9aa0a6; }
+    .go-btn {
+      position: absolute;
+      right: 6px; top: 50%;
+      transform: translateY(-50%);
+      width: 34px; height: 34px;
+      background: #8ab4f8;
+      border: none;
+      border-radius: 50%;
+      color: #202124;
+      font-size: 14px;
+      cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      transition: background 0.15s;
+    }
+    .go-btn:hover { background: #aecbfa; }
+
+    /* ===== 快捷图标（圆形，谷歌风格） ===== */
+    .quick-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+      gap: 12px;
+      max-width: 680px;
+      width: 100%;
+    }
+    .quick-card {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+      padding: 16px 8px;
+      cursor: pointer;
+      border-radius: 8px;
+      transition: all 0.15s;
+    }
+    .quick-card:hover { background: #303134; }
+    .quick-icon {
+      width: 48px; height: 48px;
+      border-radius: 12px;
+      object-fit: contain;
+      display: block;
+      transition: transform 0.15s;
+    }
+    .quick-card:hover .quick-icon { transform: scale(1.06); }
+    .quick-name {
+      font-size: 12px;
+      color: #e8eaed;
+      white-space: nowrap;
+      max-width: 88px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    /* ===== 底部状态栏 ===== */
+    .status-bar {
+      padding: 10px 24px;
+      background: #292a2d;
+      border-top: 1px solid #3c4043;
+      font-size: 12px;
+      color: #9aa0a6;
+      display: flex;
+      justify-content: space-between;
+    }
+    .status-dot {
+      display: inline-block;
+      width: 8px; height: 8px; border-radius: 50%;
+      background: #34a853;
+      margin-right: 6px;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- 顶部导航栏 -->
+  <div class="nav-bar">
+    <div class="nav-brand">关联浏览器</div>
+    <div class="nav-buttons">
+      <a class="nav-btn" href="https://www.tiktok.com"><img class="nav-icon" src="assets/icons/tiktok_com.png" alt="">TikTok</a>
+      <a class="nav-btn" href="https://www.youtube.com"><img class="nav-icon" src="assets/icons/youtube_com.png" alt="">YouTube</a>
+      <a class="nav-btn" href="https://x.com"><img class="nav-icon" src="assets/icons/x_com.png" alt="">X</a>
+      <a class="nav-btn" href="https://www.instagram.com"><img class="nav-icon" src="assets/icons/instagram_com.png" alt="">Instagram</a>
+      <a class="nav-btn" href="https://www.facebook.com"><img class="nav-icon" src="assets/icons/facebook_com.png" alt="">Facebook</a>
+      <a class="nav-btn" href="https://www.threads.net"><img class="nav-icon" src="assets/icons/threads_net.png" alt="">Threads</a>
+      <a class="nav-btn" href="https://www.pinterest.com"><img class="nav-icon" src="assets/icons/pinterest_com.png" alt="">Pinterest</a>
+      <a class="nav-btn" href="https://chatgpt.com"><img class="nav-icon" src="assets/icons/chatgpt_com.png" alt="">ChatGPT</a>
+      <a class="nav-btn" href="https://gemini.google.com"><img class="nav-icon" src="assets/icons/gemini_google_com.png" alt="">Gemini</a>
+      <a class="nav-btn" href="https://ip.cn"><img class="nav-icon" src="assets/icons/ip_cn.png" alt="">检测IP</a>
+    </div>
+  </div>
+
+  <!-- 欢迎 + 搜索 + 快捷图标 -->
+  <div class="welcome">
+    <div class="brand-logo">
+      <img src="assets/logo.svg" alt="关联浏览器">
+      <span class="brand-name">关联浏览器</span>
+    </div>
+
+    <div class="search-wrap">
+      <input type="text" class="search-box" id="address" placeholder="搜索或输入网址" autocomplete="off" spellcheck="false">
+      <button class="go-btn" id="goBtn" title="前往">➜</button>
+    </div>
+
+    <div class="quick-grid">
+      <div class="quick-card" data-url="https://www.tiktok.com">
+        <img class="quick-icon" src="assets/icons/tiktok_com.png" alt=""><div class="quick-name">TikTok</div>
+      </div>
+      <div class="quick-card" data-url="https://www.youtube.com">
+        <img class="quick-icon" src="assets/icons/youtube_com.png" alt=""><div class="quick-name">YouTube</div>
+      </div>
+      <div class="quick-card" data-url="https://x.com">
+        <img class="quick-icon" src="assets/icons/x_com.png" alt=""><div class="quick-name">X</div>
+      </div>
+      <div class="quick-card" data-url="https://www.instagram.com">
+        <img class="quick-icon" src="assets/icons/instagram_com.png" alt=""><div class="quick-name">Instagram</div>
+      </div>
+      <div class="quick-card" data-url="https://www.facebook.com">
+        <img class="quick-icon" src="assets/icons/facebook_com.png" alt=""><div class="quick-name">Facebook</div>
+      </div>
+      <div class="quick-card" data-url="https://www.threads.net">
+        <img class="quick-icon" src="assets/icons/threads_net.png" alt=""><div class="quick-name">Threads</div>
+      </div>
+      <div class="quick-card" data-url="https://www.pinterest.com">
+        <img class="quick-icon" src="assets/icons/pinterest_com.png" alt=""><div class="quick-name">Pinterest</div>
+      </div>
+      <div class="quick-card" data-url="https://chatgpt.com">
+        <img class="quick-icon" src="assets/icons/chatgpt_com.png" alt=""><div class="quick-name">ChatGPT</div>
+      </div>
+      <div class="quick-card" data-url="https://gemini.google.com">
+        <img class="quick-icon" src="assets/icons/gemini_google_com.png" alt=""><div class="quick-name">Gemini</div>
+      </div>
+      <div class="quick-card" data-url="https://ip.cn">
+        <img class="quick-icon" src="assets/icons/ip_cn.png" alt=""><div class="quick-name">我的IP</div>
+      </div>
+      <div class="quick-card" data-url="https://browserleaks.com">
+        <img class="quick-icon" src="assets/icons/browserleaks_com.png" alt=""><div class="quick-name">指纹检测</div>
+      </div>
+      <div class="quick-card" data-url="https://whoer.net">
+        <img class="quick-icon" src="assets/icons/whoer_net.png" alt=""><div class="quick-name">隐私检测</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 底部状态栏 -->
+  <div class="status-bar">
+    <span><span class="status-dot"></span>代理隔离已就绪</span>
+    <span>指纹 · Proxy · PAC-Direct</span>
+  </div>
+
+  <script>
+    document.querySelectorAll('.nav-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.preventDefault();
+        const url = btn.getAttribute('href');
+        if (url) window.location.href = url;
+      });
+    });
+
+    document.querySelectorAll('.quick-card').forEach(card => {
+      card.addEventListener('click', () => {
+        const url = card.getAttribute('data-url');
+        if (url) window.location.href = url;
+      });
+    });
+
+    const addr = document.getElementById('address');
+    const goBtn = document.getElementById('goBtn');
+
+    function navigate() {
+      let url = addr.value.trim();
+      if (!url) return;
+      if (!/^https?:\/\//i.test(url) && !/^ftp:\/\//i.test(url)) {
+        if (/\./.test(url) && !/\s/.test(url)) {
+          url = 'https://' + url;
+        } else {
+          url = 'https://www.google.com/search?q=' + encodeURIComponent(url);
+        }
+      }
+      window.location.href = url;
+    }
+
+    goBtn.addEventListener('click', navigate);
+    addr.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') navigate();
+    });
+  </script>
+</body>
+</html>

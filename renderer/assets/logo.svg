@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 288 288">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#c2f0cd"/>
+      <stop offset="0.45" stop-color="#8fe6df"/>
+      <stop offset="1" stop-color="#4db4ef"/>
+    </linearGradient>
+  </defs>
+
+  <!-- 渐变背景 -->
+  <rect x="8" y="8" width="272" height="272" rx="34" fill="url(#bg)"/>
+
+  <!-- 显示器（描边式 7 形边框 + 屏幕内青色内容条） -->
+  <path d="M168 54 H256" stroke="#101314" stroke-width="15" stroke-linecap="round" fill="none"/>
+  <path d="M249 56 L214 184" stroke="#101314" stroke-width="15" stroke-linecap="round" fill="none"/>
+  <rect x="170" y="120" width="62" height="15" fill="#187f96"/>
+
+  <!-- 桌面 -->
+  <rect x="150" y="190" width="112" height="14" rx="7" fill="#101314"/>
+  <rect x="242" y="190" width="14" height="46" rx="5" fill="#101314"/>
+
+  <!-- 人物剪影 -->
+  <g stroke="#101314" fill="none" stroke-linecap="round">
+    <circle cx="120" cy="88" r="29" fill="#101314" stroke="none"/>
+    <path d="M130 132 L120 198" stroke-width="42"/>
+    <path d="M136 148 L196 186" stroke-width="22"/>
+    <path d="M118 205 L167 207" stroke-width="36"/>
+    <path d="M167 207 L172 245" stroke-width="27"/>
+    <path d="M172 247 L194 247" stroke-width="14"/>
+  </g>
+
+  <!-- 座椅 -->
+  <g stroke="#101314" fill="none" stroke-linecap="round">
+    <path d="M88 142 L84 234" stroke-width="16"/>
+    <path d="M92 172 L128 172" stroke-width="12"/>
+    <path d="M90 213 L136 213" stroke-width="20"/>
+    <path d="M110 223 L110 243" stroke-width="13"/>
+    <path d="M87 251 L133 251" stroke-width="11"/>
+  </g>
+
+  <!-- 黑色圆角边框 -->
+  <rect x="8" y="8" width="272" height="272" rx="34" fill="none" stroke="#101314" stroke-width="15"/>
+</svg>

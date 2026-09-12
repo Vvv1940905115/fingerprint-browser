@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>关联浏览器</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <!-- ===== 顶部栏 ===== -->
+  <header class="topbar">
+    <div class="topbar-left">
+      <div class="brand">关联浏览器</div>
+    </div>
+    <div class="topbar-right">
+      <button class="btn btn-primary" id="btn-create">+ 新建环境</button>
+      <button class="btn btn-outline" id="btn-stop-all">关闭全部</button>
+      <button class="btn btn-outline" id="btn-refresh">刷新</button>
+    </div>
+  </header>
+
+  <!-- ===== 统计条 ===== -->
+  <div class="statbar">
+    <div class="stat-card">
+      <span class="stat-num" id="stat-total">0</span>
+      <span class="stat-label">环境总数</span>
+    </div>
+    <div class="stat-card stat-green">
+      <span class="stat-num" id="stat-running">0</span>
+      <span class="stat-label">运行中</span>
+    </div>
+    <div class="stat-card stat-gray">
+      <span class="stat-num" id="stat-stopped">0</span>
+      <span class="stat-label">已停止</span>
+    </div>
+    <div class="stat-bar-spacer"></div>
+    <input type="text" class="search-input" id="search-input" placeholder="🔍 搜索名称或 ID...">
+  </div>
+
+  <!-- ===== 表格 ===== -->
+  <main class="main">
+    <table class="profile-table" id="profile-table" style="display:none;">
+      <thead>
+        <tr>
+          <th style="width:40px;"><input type="checkbox" id="check-all"></th>
+          <th style="width:50px;">序号</th>
+          <th style="width:200px;">名称</th>
+          <th style="width:280px;">代理</th>
+          <th style="width:100px;">状态</th>
+          <th style="width:130px;">创建时间</th>
+          <th style="width:180px;" class="col-right">操作</th>
+        </tr>
+      </thead>
+      <tbody id="profile-tbody"></tbody>
+    </table>
+
+    <div class="empty" id="empty">
+      <div class="empty-illu"></div>
+      <h3>当前暂无环境</h3>
+      <p>环境是具备唯一指纹的独立浏览器，用于隔离不同平台和账号</p>
+      <button class="btn btn-primary btn-big" id="btn-empty-create">+ 新建环境</button>
+    </div>
+  </main>
+
+  <!-- ===== 新建/编辑环境弹窗（左侧竖向导航布局） ===== -->
+  <div class="modal-mask" id="modal" style="display:none;">
+    <div class="modal modal-wide">
+      <div class="modal-head">
+        <h2 id="modal-title">新建环境</h2>
+        <button class="modal-x" id="modal-x">✕</button>
+      </div>
+
+      <div class="modal-layout">
+
+        <!-- 左侧竖向导航 -->
+        <aside class="side-nav">
+          <div class="side-nav-item active" data-panel="basic">基础设置</div>
+          <div class="side-nav-item" data-panel="proxy">代理信息</div>
+          <div class="side-nav-item" data-panel="accounts">账号信息</div>
+          <div class="side-nav-item" data-panel="advanced">高级设置</div>
+        </aside>
+
+        <div class="modal-body">
+
+          <!-- 面板 1: 基础设置 -->
+          <div class="tab-panel active" data-panel="basic">
+            <div class="form-group">
+              <label>环境名称 <span class="req">*</span></label>
+              <input type="text" id="f-name" placeholder="例如：美国-亚马逊店铺A" maxlength="50">
+            </div>
+            <div class="form-group" id="form-count-row">
+              <label>新建环境数</label>
+              <input type="number" id="f-count" value="1" min="1" max="100" style="width:140px;">
+              <p class="section-hint">批量创建时自动编号：环境A、环境A2、环境A3 ...</p>
+            </div>
+            <div class="form-group">
+              <label>浏览器内核</label>
+              <div class="combo-wrap" id="kernel-combo">
+                <input type="text" id="f-kernel" placeholder="智能匹配" autocomplete="off" readonly>
+                <svg class="combo-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                <div class="combo-dropdown" id="kernel-dropdown" style="display:none;">
+                  <div class="combo-option" data-val="auto">智能匹配</div>
+                  <div id="kernel-options"></div>
+                </div>
+              </div>
+              <div class="kernel-hint" id="kernel-hint"></div>
+            </div>
+            <div class="form-group">
+              <label>操作系统</label>
+              <div class="segmented os-group" id="seg-os">
+                <div class="seg-item active" data-val="windows">🪟 Windows</div>
+                <div class="seg-item" data-val="android">🤖 Android</div>
+                <div class="seg-item" data-val="ios">📱 iOS</div>
+                <div class="seg-item" data-val="macos">🍎 macOS</div>
+                <div class="seg-item" data-val="linux">🐧 Linux</div>
+              </div>
+              <div class="section-hint">选择操作系统后，User Agent 平台、屏幕分辨率、触控、字体等指纹参数将联动生成</div>
+            </div>
+            <div class="form-group">
+              <label>User Agent</label>
+              <div class="segmented seg-compact" id="seg-ua-mode">
+                <div class="seg-item active" data-val="random">随机</div>
+                <div class="seg-item" data-val="custom">自定义</div>
+              </div>
+              <textarea id="f-ua-text" rows="2" placeholder="自定义 UserAgent 字符串" style="margin-top:10px;display:none;"></textarea>
+            </div>
+            <div class="form-group">
+              <label>分组</label>
+              <div class="combo-wrap" id="group-combo">
+                <input type="text" id="f-group" placeholder="未分组" autocomplete="off">
+                <svg class="combo-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.5" y2="16.5"/></svg>
+                <div class="combo-dropdown" id="group-dropdown" style="display:none;">
+                  <div class="combo-option" data-group="">未分组</div>
+                  <div id="group-options"></div>
+                  <div class="combo-add-row">
+                    <input type="text" id="f-group-new" placeholder="输入分组名" autocomplete="off">
+                    <button type="button" class="combo-add-btn" id="btn-group-add">+ 添加</button>
+                  </div>
+                  <div class="combo-error" id="group-add-error" style="display:none;">请输入分组名</div>
+                </div>
+              </div>
+            </div>
+            <div class="form-group">
+              <label>标签</label>
+              <div class="combo-wrap" id="labels-combo">
+                <div class="chip-input" id="labels-box">
+                  <div class="chips" id="label-chips"></div>
+                  <input type="text" id="f-labels-input" placeholder="选择或输入标签" autocomplete="off">
+                </div>
+                <div class="combo-dropdown" id="label-dropdown" style="display:none;">
+                  <div class="combo-option combo-option-new" id="label-add-item" style="display:none;"></div>
+                  <div id="label-suggest"></div>
+                  <div class="color-dots" id="color-dots"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 面板 2: 代理信息 -->
+          <div class="tab-panel" data-panel="proxy">
+          <div class="form-group">
+            <label>代理方式</label>
+            <div class="segmented" id="seg-proxy-mode">
+              <div class="seg-item active" data-val="custom">自定义</div>
+              <div class="seg-item" data-val="saved">已添加的代理</div>
+              <div class="seg-item" data-val="dynamic">动态代理</div>
+              <div class="seg-item" data-val="integrated">集成代理</div>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label>代理类型</label>
+            <div class="proxy-type-row">
+              <select id="f-proxy-type">
+                <option value="none">No Proxy (本地直连)</option>
+                <option value="socks5">Socks5</option>
+                <option value="https">HTTPS</option>
+                <option value="http">HTTP</option>
+              </select>
+              <button class="btn btn-outline btn-sm" id="btn-check-network">检查网络</button>
+            </div>
+          </div>
+
+          <div id="f-proxy-fields" style="display:none;">
+            <div class="form-row">
+              <div class="form-group flex-2">
+                <label>代理 IP / 域名 *</label>
+                <input type="text" id="f-proxy-host" placeholder="proxy.example.com">
+              </div>
+              <div class="form-group flex-1">
+                <label>端口 *</label>
+                <input type="number" id="f-proxy-port" placeholder="1080" min="1" max="65535">
+              </div>
+            </div>
+            <div class="form-row">
+              <div class="form-group flex-1">
+                <label>用户名（可选）</label>
+                <input type="text" id="f-proxy-user" placeholder="留空 = 无认证">
+              </div>
+              <div class="form-group flex-1">
+                <label>密码（可选）</label>
+                <input type="password" id="f-proxy-pass" placeholder="留空 = 无认证">
+              </div>
+            </div>
+            <div class="proxy-actions">
+              <button class="btn btn-outline" id="btn-proxy-test">🔍 测试连通性</button>
+              <span class="proxy-test-result" id="proxy-test-result"></span>
+            </div>
+          </div>
+          <div class="hint-box">
+            <strong>ℹ️ 分流策略（自动生效，不修改系统全局代理）</strong>
+            <ul>
+              <li>本地局域网 192.168.x.x / 10.x.x.x / 127.0.0.1 → 直连，走本地网卡</li>
+              <li>国内域名 baidu.com / taobao.com / 京东 等 → 直连</li>
+              <li>国内 IP 段 → 直连</li>
+              <li>其余境外流量 → 通过上述代理转发</li>
+            </ul>
+          </div>
+        </div>
+
+        <!-- 面板 3: 账号信息 -->
+        <div class="tab-panel" data-panel="accounts">
+          <div class="form-group">
+            <label>账号平台（选择后自动填充标签页 + UA 建议）</label>
+            <div class="platform-grid" id="platform-grid">
+              <!-- 动态渲染 -->
+            </div>
+          </div>
+          <div class="form-group">
+            <label>标签页（每行一个网址，打开环境时自动加载）</label>
+            <textarea id="f-tags" rows="5" placeholder="https://www.google.com&#10;https://www.facebook.com"></textarea>
+          </div>
+          <div class="hint-box">
+            <strong>💡 提示</strong>
+            <ul>
+              <li>点击上方平台图标 → 自动把该平台主站加入标签页</li>
+              <li>可多选，选中的平台会高亮显示</li>
+              <li>下方标签页输入框可手动编辑，每行一个网址</li>
+            </ul>
+          </div>
+        </div>
+
+        <!-- 面板 4: 高级设置（指纹 + 硬件 + 种子） -->
+        <div class="tab-panel" data-panel="advanced">
+          <div class="form-group">
+            <label>WebRTC</label>
+            <div class="segmented" id="seg-webrtc">
+              <div class="seg-item" data-val="forward">转发</div>
+              <div class="seg-item" data-val="replace">替换</div>
+              <div class="seg-item" data-val="real">真实</div>
+              <div class="seg-item active" data-val="disable">禁用</div>
+              <div class="seg-item" data-val="proxy_udp">代理UDP</div>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label>语言</label>
+            <div class="segmented" id="seg-lang-mode">
+              <div class="seg-item active" data-val="ip">跟随IP匹配</div>
+              <div class="seg-item" data-val="custom">自定义</div>
+            </div>
+            <div id="f-lang-custom" style="display:none;margin-top:10px;">
+              <div class="lang-editor" id="lang-editor">
+                <div class="lang-tags" id="lang-tags"></div>
+                <input type="text" id="f-lang-input" placeholder="输入语言代码（如 en-US）或从下拉选择" autocomplete="off">
+              </div>
+              <div class="lang-dropdown" id="lang-dropdown" style="display:none;"></div>
+              <button type="button" class="lang-add-btn" id="btn-add-lang">+ 添加语言</button>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label>时区</label>
+            <div class="segmented" id="seg-tz-mode">
+              <div class="seg-item active" data-val="ip">跟随IP匹配</div>
+              <div class="seg-item" data-val="custom">自定义</div>
+            </div>
+            <select id="f-tz" style="margin-top:10px;display:none;">
+              <option value="">选择时区...</option>
+              <option value="Asia/Shanghai">北京 (UTC+8)</option>
+              <option value="Asia/Hong_Kong">香港 (UTC+8)</option>
+              <option value="Asia/Tokyo">东京 (UTC+9)</option>
+              <option value="Asia/Singapore">新加坡 (UTC+8)</option>
+              <option value="Asia/Dubai">迪拜 (UTC+4)</option>
+              <option value="Europe/London">伦敦 (UTC+0)</option>
+              <option value="Europe/Paris">巴黎 (UTC+1)</option>
+              <option value="Europe/Berlin">柏林 (UTC+1)</option>
+              <option value="Europe/Moscow">莫斯科 (UTC+3)</option>
+              <option value="America/New_York">纽约 (UTC-5)</option>
+              <option value="America/Chicago">芝加哥 (UTC-6)</option>
+              <option value="America/Los_Angeles">洛杉矶 (UTC-8)</option>
+              <option value="America/Sao_Paulo">圣保罗 (UTC-3)</option>
+              <option value="Australia/Sydney">悉尼 (UTC+10)</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label>地理位置</label>
+            <div class="segmented" id="seg-geo-permission">
+              <div class="seg-item active" data-val="ask">询问</div>
+              <div class="seg-item" data-val="allow">允许</div>
+              <div class="seg-item" data-val="block">禁用</div>
+            </div>
+            <div class="segmented" id="seg-geo-mode" style="margin-top:8px;">
+              <div class="seg-item active" data-val="ip">跟随IP匹配</div>
+              <div class="seg-item" data-val="custom">自定义</div>
+            </div>
+            <div class="form-row geo-row" id="f-geo-custom" style="display:none;margin-top:10px;">
+              <div class="form-group flex-1">
+                <label>纬度 (Latitude)</label>
+                <input type="number" id="f-geo-lat" step="0.0001" placeholder="例：40.7128">
+              </div>
+              <div class="form-group flex-1">
+                <label>经度 (Longitude)</label>
+                <input type="number" id="f-geo-lng" step="0.0001" placeholder="例：-74.0060">
+              </div>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label>分辨率</label>
+            <select id="f-res">
+              <option value="">自动</option>
+              <option value="1920x1080">1920 × 1080</option>
+              <option value="2560x1440">2560 × 1440</option>
+              <option value="1366x768">1366 × 768</option>
+              <option value="1440x900">1440 × 900</option>
+              <option value="3840x2160">3840 × 2160 (4K)</option>
+              <option value="1536x864">1536 × 864</option>
+            </select>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label>CPU 核心数</label>
+              <select id="f-hw">
+                <option value="">自动</option>
+                <option value="2">2 核</option>
+                <option value="4">4 核</option>
+                <option value="6">6 核</option>
+                <option value="8">8 核</option>
+                <option value="12">12 核</option>
+                <option value="16">16 核</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>设备内存 (GB)</label>
+              <select id="f-mem">
+                <option value="">自动</option>
+                <option value="4">4 GB</option>
+                <option value="8">8 GB</option>
+                <option value="16">16 GB</option>
+                <option value="32">32 GB</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-group">
+            <label>重新生成指纹种子</label>
+            <p class="section-hint">换一套全新的指纹参数，下次启动时生效。同一环境重启指纹保持一致（基于 seed）。</p>
+            <button class="btn btn-outline" id="btn-regenerate">🔄 换一套新指纹</button>
+          </div>
+        </div>
+
+      </div>
+      <div class="modal-foot">
+        <button class="btn btn-outline" id="btn-cancel">取消</button>
+        <button class="btn btn-primary" id="btn-save">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== 确认弹窗 ===== -->
+  <div class="modal-mask" id="confirm-modal" style="display:none;">
+    <div class="modal modal-small">
+      <div class="modal-head">
+        <h2 id="confirm-title">确认</h2>
+      </div>
+      <div class="modal-body">
+        <p id="confirm-msg"></p>
+      </div>
+      <div class="modal-foot">
+        <button class="btn btn-outline" id="confirm-no">取消</button>
+        <button class="btn btn-danger" id="confirm-yes">确认</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="js/app.js"></script>
+</body>
+</html>
