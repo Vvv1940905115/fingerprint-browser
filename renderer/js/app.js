@@ -33,6 +33,16 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 function bindEvents() {
+  // 主题切换：深色默认，持久化到 localStorage；按钮显示「可切换到」的目标主题
+  const applyTheme = (t) => {
+    document.documentElement.dataset.theme = t;
+    localStorage.setItem('theme', t);
+    $('btn-theme').textContent = t === 'light' ? '🌙 深色' : '☀️ 浅色';
+  };
+  applyTheme(localStorage.getItem('theme') === 'light' ? 'light' : 'dark');
+  $('btn-theme').onclick = () =>
+    applyTheme(document.documentElement.dataset.theme === 'light' ? 'dark' : 'light');
+
   // 顶部按钮 + 空状态大按钮
   $('btn-create').onclick = () => openCreate();
   $('btn-empty-create').onclick = () => openCreate();
@@ -534,7 +544,7 @@ function syncGeoModeUI() {
 }
 
 // ============================================================
-// 语言编辑器：多语言标签（chips）+ 候选下拉 + 添加语言
+// 语言编辑器：单个输入框内嵌多语言标签（chips）+ 候选下拉
 // ============================================================
 const LANG_CATALOG = [
   { code: 'en-US', name: '英语（美国）' }, { code: 'en-GB', name: '英语（英国）' },
@@ -571,7 +581,6 @@ function bindLangEditor() {
   input.onblur = () => setTimeout(() => { $('lang-dropdown').style.display = 'none'; }, 180);
   input.onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); addLangFromInput(); } };
 
-  $('btn-add-lang').onclick = addLangFromInput;
   // 点击输入框空白区域聚焦
   $('lang-editor').onclick = (e) => {
     if (e.target.id === 'lang-editor' || e.target.id === 'lang-tags') $('f-lang-input').focus();

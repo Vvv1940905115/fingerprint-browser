@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <title>关联浏览器</title>
   <link rel="stylesheet" href="css/style.css">
+  <script>document.documentElement.dataset.theme = localStorage.getItem('theme') === 'light' ? 'light' : 'dark';</script>
 </head>
 <body>
   <!-- ===== 顶部栏 ===== -->
@@ -15,6 +16,7 @@
       <button class="btn btn-primary" id="btn-create">+ 新建环境</button>
       <button class="btn btn-outline" id="btn-stop-all">关闭全部</button>
       <button class="btn btn-outline" id="btn-refresh">刷新</button>
+      <button class="btn btn-outline" id="btn-theme" title="切换外观配色">☀️ 浅色</button>
     </div>
   </header>
 
@@ -264,7 +266,6 @@
                 <input type="text" id="f-lang-input" placeholder="输入语言代码（如 en-US）或从下拉选择" autocomplete="off">
               </div>
               <div class="lang-dropdown" id="lang-dropdown" style="display:none;"></div>
-              <button type="button" class="lang-add-btn" id="btn-add-lang">+ 添加语言</button>
             </div>
           </div>
 
