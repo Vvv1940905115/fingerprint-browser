@@ -17,14 +17,34 @@ const { buildAcceptLanguage } = require('./ipLocator');
 // 指纹参数池（按操作系统分组）
 // ============================================================
 
+// ---------- 通用：Chrome 版本集合（随机池共用） ----------
+const CHROME_VERSIONS = [153, 151, 150, 149, 147, 145, 143, 141];
+// Win7/8 上 Chrome 实际最高 109：低版本系统仅从旧版池取，避免 "Win7 + Chrome 153" 矛盾 UA
+const LEGACY_CHROME_VERSIONS = [109, 106, 104, 101];
+
 // ---------- Windows ----------
+// 版本下拉：11 / 10 / 8 / 7（NT 10.0 同时覆盖 Win10/11，与真实 UA 行为一致）
+const WINDOWS_VERSIONS = ['11', '10', '8', '7'];
+const mkWinEntries = (nt, vers) => {
+  const chromeVers = nt === '10.0' ? CHROME_VERSIONS : LEGACY_CHROME_VERSIONS;
+  return vers.flatMap(ver => {
+    const list = chromeVers.map(c => {
+      const ua = `Mozilla/5.0 (Windows NT ${nt}; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${c}.0.0.0 Safari/537.36`;
+      return { ua, ver, platform: 'Win32', vendor: 'Google Inc.', appVersion: ua.slice(8) };
+    });
+    // Edge 跟随最新 Chromium，仅挂在 Win10/11
+    if (nt === '10.0') {
+      const ua = `Mozilla/5.0 (Windows NT ${nt}; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/153.0.0.0 Safari/537.36 Edg/153.0.0.0`;
+      list.push({ ua, ver, platform: 'Win32', vendor: 'Google Inc.', appVersion: ua.slice(8) });
+    }
+    return list;
+  });
+};
+
 const WINDOWS_UA_POOL = [
-  { ua: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36', platform: 'Win32', vendor: 'Google Inc.', appVersion: '5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36' },
-  { ua: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36', platform: 'Win32', vendor: 'Google Inc.', appVersion: '5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36' },
-  { ua: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36', platform: 'Win32', vendor: 'Google Inc.', appVersion: '5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36' },
-  { ua: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/117.0.0.0 Safari/537.36', platform: 'Win32', vendor: 'Google Inc.', appVersion: '5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/117.0.0.0 Safari/537.36' },
-  // Windows Edge
-  { ua: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 Edg/120.0.0.0', platform: 'Win32', vendor: 'Google Inc.', appVersion: '5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 Edg/120.0.0.0' },
+  ...mkWinEntries('10.0', ['11', '10']),
+  ...mkWinEntries('6.2', ['8']),
+  ...mkWinEntries('6.1', ['7']),
 ];
 
 const WINDOWS_SCREEN_POOL = [
@@ -50,11 +70,18 @@ const WINDOWS_FONT_SETS = [
 ];
 
 // ---------- macOS ----------
-const MACOS_UA_POOL = [
-  { ua: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36', platform: 'MacIntel', vendor: 'Google Inc.', appVersion: '5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36' },
-  { ua: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36', platform: 'MacIntel', vendor: 'Google Inc.', appVersion: '5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36' },
-  { ua: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36', platform: 'MacIntel', vendor: 'Google Inc.', appVersion: '5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36' },
-];
+// 版本下拉：26 / 15 / 14 / 13 / 12 / 11 / 10（带小版本号，贴近真实 UA；10 固定 10_15_7）
+const MACOS_VERSIONS = ['26', '15', '14', '13', '12', '11', '10'];
+const MACOS_MINOR = { '26': '0', '15': '5', '14': '7', '13': '6', '12': '7', '11': '7' };
+const mkMacEntries = (ver) => {
+  const osx = ver === '10' ? '10_15_7' : `${ver}_${MACOS_MINOR[ver]}_0`;
+  return CHROME_VERSIONS.map(c => {
+    const ua = `Mozilla/5.0 (Macintosh; Intel Mac OS X ${osx}) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${c}.0.0.0 Safari/537.36`;
+    return { ua, ver, platform: 'MacIntel', vendor: 'Google Inc.', appVersion: ua.slice(8) };
+  });
+};
+
+const MACOS_UA_POOL = MACOS_VERSIONS.flatMap(mkMacEntries);
 
 const MACOS_SCREEN_POOL = [
   { width: 1440, height: 900, dpr: 2 },
@@ -77,9 +104,13 @@ const MACOS_FONT_SETS = [
 ];
 
 // ---------- Linux ----------
+// Linux 不细分版本（下拉仅 All Linux），Chrome + Firefox 两条模板
+const LINUX_CHROME_UA = (v) => `Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${v}.0.0.0 Safari/537.36`;
 const LINUX_UA_POOL = [
-  { ua: 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36', platform: 'Linux x86_64', vendor: 'Google Inc.', appVersion: '5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36' },
-  { ua: 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36', platform: 'Linux x86_64', vendor: 'Google Inc.', appVersion: '5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36' },
+  ...CHROME_VERSIONS.map(v => {
+    const ua = LINUX_CHROME_UA(v);
+    return { ua, platform: 'Linux x86_64', vendor: 'Google Inc.', appVersion: ua.slice(8) };
+  }),
   { ua: 'Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:120.0) Gecko/20100101 Firefox/120.0', platform: 'Linux x86_64', vendor: '', appVersion: '5.0 (X11; Ubuntu; Linux x86_64; rv:120.0) Gecko/20100101 Firefox/120.0' },
 ];
 
@@ -101,11 +132,26 @@ const LINUX_FONT_SETS = [
 ];
 
 // ---------- Android ----------
-const ANDROID_UA_POOL = [
-  { ua: 'Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36', platform: 'Linux armv81', vendor: 'Google Inc.', appVersion: '5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36' },
-  { ua: 'Mozilla/5.0 (Linux; Android 13; SM-S911B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36', platform: 'Linux armv81', vendor: 'Google Inc.', appVersion: '5.0 (Linux; Android 13; SM-S911B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36' },
-  { ua: 'Mozilla/5.0 (Linux; Android 12; Redmi Note 12 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Mobile Safari/537.36', platform: 'Linux armv81', vendor: 'Google Inc.', appVersion: '5.0 (Linux; Android 12; Redmi Note 12 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Mobile Safari/537.36' },
-];
+// 版本下拉：16 / 15 / 14 / 13 / 12 / 11 / 10，每版本搭配几款真实机型
+const ANDROID_VERSIONS = ['16', '15', '14', '13', '12', '11', '10'];
+const ANDROID_DEVICES_BY_VER = {
+  '16': ['Pixel 9 Pro', 'SM-S938B'],
+  '15': ['Pixel 8', 'SM-S928B', 'Pixel 7'],
+  '14': ['Pixel 7', 'SM-S918B'],
+  '13': ['Pixel 6a', 'SM-S911B'],
+  '12': ['Pixel 6', 'SM-G991B', 'Redmi Note 12 Pro'],
+  '11': ['Pixel 5', 'SM-G998B', 'Redmi Note 10 Pro'],
+  '10': ['Pixel 4', 'SM-G981B', 'Redmi Note 9'],
+};
+const ANDROID_UA_POOL = ANDROID_VERSIONS.flatMap((ver, vi) =>
+  ANDROID_DEVICES_BY_VER[ver].flatMap((dev, i) =>
+    // 每款机型轮换两个 Chrome 版本，扩大随机面
+    [CHROME_VERSIONS[(vi + i) % CHROME_VERSIONS.length], CHROME_VERSIONS[(vi + i + 3) % CHROME_VERSIONS.length]].map(c => {
+      const ua = `Mozilla/5.0 (Linux; Android ${ver}; ${dev}) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${c}.0.0.0 Mobile Safari/537.36`;
+      return { ua, ver, platform: 'Linux armv81', vendor: 'Google Inc.', appVersion: ua.slice(8) };
+    })
+  )
+);
 
 // Android CSS 像素分辨率（screen.width/height 实际报告值）
 const ANDROID_SCREEN_POOL = [
@@ -126,11 +172,17 @@ const ANDROID_FONT_SETS = [
 ];
 
 // ---------- iOS ----------
-const IOS_UA_POOL = [
-  { ua: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.1 Mobile/15E148 Safari/604.1', platform: 'iPhone', vendor: 'Apple Computer, Inc.', appVersion: '5.0 (iPhone; CPU iPhone OS 17_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.1 Mobile/15E148 Safari/604.1' },
-  { ua: 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1', platform: 'iPhone', vendor: 'Apple Computer, Inc.', appVersion: '5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1' },
-  { ua: 'Mozilla/5.0 (iPad; CPU OS 17_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.1 Mobile/15E148 Safari/604.1', platform: 'MacIntel', vendor: 'Apple Computer, Inc.', appVersion: '5.0 (iPad; CPU OS 17_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.1 Mobile/15E148 Safari/604.1' },
-];
+// 版本下拉：26 / 18 / 17 / 16 / 15 / 14 / 13（iPhone + iPad 各一条，iPad 平台报 MacIntel）
+const IOS_VERSIONS = ['26', '18', '17', '16', '15', '14', '13'];
+const IOS_MINOR = { '26': '0', '18': '5', '17': '6', '16': '7', '15': '8', '14': '8', '13': '7' };
+const IOS_UA_POOL = IOS_VERSIONS.flatMap(ver => {
+  const m = IOS_MINOR[ver];
+  const mk = (device, cpu, platform) => {
+    const ua = `Mozilla/5.0 (${device}; CPU ${cpu} ${ver}_${m} like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/${ver}.${m} Mobile/15E148 Safari/604.1`;
+    return { ua, ver, platform, vendor: 'Apple Computer, Inc.', appVersion: ua.slice(8) };
+  };
+  return [mk('iPhone', 'iPhone OS', 'iPhone'), mk('iPad', 'OS', 'MacIntel')];
+});
 
 const IOS_SCREEN_POOL = [
   { width: 390, height: 844, dpr: 3 },   // iPhone 14 / 13 / 12
@@ -157,6 +209,7 @@ const IOS_FONT_SETS = [
 const OS_POOLS = {
   windows: {
     label: 'Windows',
+    versions: WINDOWS_VERSIONS,
     ua: WINDOWS_UA_POOL,
     screens: WINDOWS_SCREEN_POOL,
     webgl: WINDOWS_WEBGL_POOL,
@@ -165,6 +218,7 @@ const OS_POOLS = {
   },
   macos: {
     label: 'macOS',
+    versions: MACOS_VERSIONS,
     ua: MACOS_UA_POOL,
     screens: MACOS_SCREEN_POOL,
     webgl: MACOS_WEBGL_POOL,
@@ -173,6 +227,7 @@ const OS_POOLS = {
   },
   linux: {
     label: 'Linux',
+    versions: [],  // Linux 不细分版本
     ua: LINUX_UA_POOL,
     screens: LINUX_SCREEN_POOL,
     webgl: LINUX_WEBGL_POOL,
@@ -181,6 +236,7 @@ const OS_POOLS = {
   },
   android: {
     label: 'Android',
+    versions: ANDROID_VERSIONS,
     ua: ANDROID_UA_POOL,
     screens: ANDROID_SCREEN_POOL,
     webgl: ANDROID_WEBGL_POOL,
@@ -191,6 +247,7 @@ const OS_POOLS = {
   },
   ios: {
     label: 'iOS',
+    versions: IOS_VERSIONS,
     ua: IOS_UA_POOL,
     screens: IOS_SCREEN_POOL,
     webgl: IOS_WEBGL_POOL,
@@ -309,7 +366,18 @@ function generateFingerprint(seed, overrides = {}) {
   const osKey = OS_POOLS[fp.os] ? fp.os : 'windows';
   const pool = OS_POOLS[osKey];
 
-  const ua = pick(pool.ua, rng);
+  // 按勾选的 OS 版本筛选 UA 池（未勾选/全选 = All X，全版本随机）
+  const chosenVersions = Array.isArray(fp.osVersions) ? fp.osVersions.filter(v => pool.versions.includes(v)) : [];
+  let filteredUA = chosenVersions.length ? pool.ua.filter(e => e.ver && chosenVersions.includes(e.ver)) : [];
+
+  // 按浏览器内核大版本筛选（未指定 = 全版本随机；匹配 Chrome/x 或 Firefox/x）
+  if (fp.browserVer) {
+    const re = new RegExp(`(?:Chrome|Firefox)/${String(fp.browserVer)}[.]`);
+    const m = filteredUA.length ? filteredUA.filter(e => re.test(e.ua)) : pool.ua.filter(e => re.test(e.ua));
+    if (m.length) filteredUA = m;
+  }
+
+  const ua = pick(filteredUA.length ? filteredUA : pool.ua, rng);
   const screen = pick(pool.screens, rng);
   const tz = pick(TIMEZONE_POOL, rng);
   const lang = pick(LANGUAGE_POOL, rng);

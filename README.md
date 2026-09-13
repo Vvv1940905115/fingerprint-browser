@@ -13,8 +13,7 @@
 
 本项目是一个基于 **Electron** 的桌面应用，用来在**同一台 Windows 电脑**上管理多个互不干扰的浏览器"环境（Profile）"。
 
-<img width="1217" height="786" alt="螢幕擷取畫面 2026-09-13 112012" src="https://github.com/user-attachments/assets/7a8bbc37-97e3-49bc-b797-e0d2e867b998" />
-
+<img width="1362" height="856" alt="111" src="https://github.com/user-attachments/assets/0df13950-9588-491f-8ac6-b898794bc993" />
 
 每个环境具备：
 
@@ -26,6 +25,8 @@
 | **指纹伪造** | 伪造 UA、平台、屏幕、时区、地理定位、WebGL、Canvas、字体、硬件并发数、设备内存等 |
 | **指纹确定性** | 同一环境每次启动指纹完全一致；不同环境指纹互不重复 |
 | **多内核支持** | 智能匹配系统 Chrome，或一键下载指定大版本的 Chrome for Testing 本地内核（M ~ M-12） |
+| **系统与版本选择** | 支持伪装 Windows / macOS / Linux / Android / iOS 五大系统；每个系统可展开选择具体版本（单选，All = 全版本随机），屏幕、触控、字体等指纹参数随系统与版本联动 |
+| **浏览器版本随机范围** | UA 随机可限定在指定 Chrome 大版本内；与「浏览器内核」选择双向联动，保证内核与 UA 版本一致 |
 | **跟随IP匹配** | 时区 / 语言 / 地理位置可按代理出口 IP 自动匹配，保证指纹与 IP 归属地一致 |
 | **分组与标签** | 环境可分组管理、打彩色标签，支持搜索、批量选择 |
 | **批量创建** | 一次最多创建 100 个环境，自动编号 |
@@ -135,7 +136,12 @@ npm run test-modules
 npm start
 ```
 
-启动后弹出主界面「**关联浏览器**」，顶部工具栏有：
+启动后弹出主界面「**关联浏览器**」，内容区顶部有两个 Tab：
+
+- **`浏览器`**：环境管理主功能（默认选中）
+- **`云手机`**：功能正在开发中，敬请期待
+
+浏览器 Tab 顶部工具栏有：
 
 - **`+ 新建环境`**：新建一个隔离浏览器环境
 - **`关闭全部`**：关闭所有正在运行的环境窗口
@@ -153,8 +159,8 @@ npm start
 2. 选择 **浏览器内核**：
    - `智能匹配`：优先使用系统已安装的 Chrome 启动（未检测到则回退内置 Electron 内核）
    - `Chrome 大版本`：选择指定大版本（如 Chrome 151），首次使用会自动下载对应 Chrome for Testing 内核
-3. 选择 **操作系统**（Windows / Android / iOS / macOS / Linux）——UA、屏幕、触控、字体等指纹参数联动生成
-4. **User Agent**：随机 或 自定义
+3. 选择 **操作系统**：点击复选框选择系统（Windows / macOS / Linux / Android / iOS）；点击箭头展开选择该系统的具体**版本**（单选，`All` = 全版本随机）——UA、屏幕、触控、字体等指纹参数随系统与版本联动生成
+4. **User Agent**：默认「全部（随机）」，可点选限定 **Chrome 大版本**作为随机范围；该选择与上方「浏览器内核」**双向联动**（限定版本 = 自动选中对应内核，智能匹配 = 全部随机）；也可输入自定义 UA 字符串
 5. 设置 **分组** 与 **标签**（可选）
 
 **② 代理信息**
@@ -360,17 +366,16 @@ fingerprint-browser/
 
 | 常量 | 作用 |
 | --- | --- |
-| `UA_POOL` | 可选 User-Agent / 平台 / 厂商样本（含 Windows / Mac / Edge） |
-| `SCREEN_POOL` | 屏幕分辨率与 DPR 样本 |
+| `OS_POOLS` | 五大系统（Windows / macOS / Linux / Android / iOS）样本池汇总表，每池含 `versions`（系统版本）、`ua`（User-Agent）、`screens`（分辨率与 DPR）、`webgl`（显卡厂商/渲染器）、`fontSets`（字体列表）等 |
+| `CHROME_VERSIONS` | Chrome 浏览器大版本号样本（用于 UA 随机范围与内核版本列表） |
+| `LEGACY_CHROME_VERSIONS` | 旧版 Chrome 大版本号样本（仅 Android / iOS 移动端使用） |
 | `TIMEZONE_POOL` | 时区（IANA ID + 偏移分钟）样本 |
 | `LANGUAGE_POOL` | 语言与 `navigator.languages` 样本 |
 | `GEOLOCATION_POOL` | 经纬度样本 |
-| `WEBGL_RENDERER_POOL` | WebGL 显卡厂商/渲染器样本（Intel / NVIDIA / AMD / Apple） |
-| `FONT_POOL` | 字体列表样本（Windows / Mac / Linux） |
 | `HW_CONCURRENCY_POOL` | CPU 核心数样本 |
 | `DEVICE_MEMORY_POOL` | 设备内存（GB）样本 |
 
-> 增删这些数组里的样本，即可改变可生成的指纹范围；算法本身（SHA-256 派生 + 确定性）无需改动。
+> 各系统的样本按前缀拆成独立常量（如 `WINDOWS_UA_POOL` / `WINDOWS_SCREEN_POOL` / `WINDOWS_WEBGL_POOL` / `WINDOWS_FONT_SETS`，macOS / Linux / Android / iOS 同理），再由 `OS_POOLS` 汇总引用。增删这些数组里的样本，即可改变对应系统可生成的指纹范围；算法本身（SHA-256 派生 + 确定性）无需改动。
 
 ### 2. 国内直连白名单（决定哪些流量不走代理）
 

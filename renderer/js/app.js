@@ -3,7 +3,9 @@
  * 运行在 Electron 管理界面中。通过 ipcRenderer 与主进程通信。
  */
 
-const { ipcRenderer } = require('electron');
+const { ipcRenderer, clipboard } = require('electron');
+// 注意：Electron file:// 下渲染进程 require 的相对路径基于页面目录（renderer/）解析，而非本文件目录
+const { OS_POOLS } = require('../src/fingerprint/fingerprintGenerator');
 const $ = (id) => document.getElementById(id);
 
 // ============================================================
@@ -50,15 +52,30 @@ function bindEvents() {
   $('btn-refresh').onclick = loadProfiles;
   $('search-input').oninput = () => renderTable();
 
-  // 左侧竖向导航切换
+  // 左侧锚点导航：点击平滑滚动到对应分区
   document.querySelectorAll('.side-nav-item').forEach(item => {
-    item.onclick = () => showTab(item.dataset.panel);
+    item.onclick = () => scrollToSection(item.dataset.panel);
   });
+
+  // 长页面滚动同步高亮：滚到哪个分区，左侧导航点亮哪一项
+  const modalBody = document.querySelector('#modal .modal-body');
+  if (modalBody) {
+    modalBody.addEventListener('scroll', () => {
+      closeAllOsDropdowns(); // fixed 定位的下拉不随滚动移动，滚动时直接关闭
+      const sections = document.querySelectorAll('#modal .form-section');
+      let current = sections.length ? sections[0].dataset.panel : null;
+      sections.forEach(s => {
+        if (s.offsetTop <= modalBody.scrollTop + 70) current = s.dataset.panel;
+      });
+      if (current) setActiveNav(current);
+    });
+  }
 
   // ===== 分段控件 =====
   bindSegmented('seg-proxy-mode');
+  bindMainTabs();
   bindKernelCombo();
-  bindSegmented('seg-os');
+  bindOsCheckRow();
   bindSegmented('seg-webrtc');
   bindSegmented('seg-tz-mode', (val) => {
     $('f-tz').style.display = val === 'custom' ? 'block' : 'none';
@@ -75,19 +92,26 @@ function bindEvents() {
     $('f-proxy-fields').style.display = v === 'none' ? 'none' : 'block';
   };
 
-  // UA 模式联动（随机 / 自定义）
-  bindSegmented('seg-ua-mode', (val) => {
-    $('f-ua-text').style.display = val === 'custom' ? 'block' : 'none';
-  });
+  // UA 行：模式（全部随机/自定义）+ 输入框 + 复制/随机
+  bindUaRow();
+
+  // 常用城市 → 自动填充经纬度
+  $('f-geo-city').onchange = () => {
+    const v = $('f-geo-city').value;
+    if (!v) return;
+    const [lat, lng] = v.split(',');
+    $('f-geo-lat').value = lat;
+    $('f-geo-lng').value = lng;
+  };
 
   // 代理测试
   $('btn-proxy-test').onclick = testProxy;
-  $('btn-check-network').onclick = () => { alert('检查网络：本机外网连通正常'); };
+  $('btn-check-network').onclick = () => { uiToast('检查网络：本机外网连通正常'); };
 
   // 换指纹
   $('btn-regenerate').onclick = () => {
     fingerprintSeedOverride = crypto.randomUUID();
-    alert('✓ 已生成新指纹种子！保存后下次启动生效。');
+    uiToast('✓ 已生成新指纹种子！保存后下次启动生效。', 'success');
   };
 
   // Modal 关闭 / 保存
@@ -147,7 +171,23 @@ function bindGroupCombo() {
     if (!e.target.closest('#group-combo')) $('group-dropdown').style.display = 'none';
     if (!e.target.closest('#labels-combo')) $('label-dropdown').style.display = 'none';
     if (!e.target.closest('#kernel-combo')) $('kernel-dropdown').style.display = 'none';
+    if (!e.target.closest('#os-check-row')) closeAllOsDropdowns();
+    if (!e.target.closest('#ua-mode-combo')) $('ua-mode-dropdown').style.display = 'none';
   });
+}
+
+// ============================================================
+// 顶层 Tab：浏览器 / 云手机
+// ============================================================
+function bindMainTabs() {
+  $('main-tabs').onclick = (e) => {
+    const tab = e.target.closest('.main-tab');
+    if (!tab) return;
+    document.querySelectorAll('#main-tabs .main-tab').forEach(t => t.classList.toggle('active', t === tab));
+    const isBrowser = tab.dataset.tab === 'browser';
+    $('tab-panel-browser').style.display = isBrowser ? '' : 'none';
+    $('tab-panel-cloudphone').style.display = isBrowser ? 'none' : '';
+  };
 }
 
 // ============================================================
@@ -197,11 +237,20 @@ function renderKernelDropdown() {
   }).join('');
 }
 
-function selectKernel(val) {
-  selectedKernelVersion = val || 'auto';
-  $('f-kernel').value = selectedKernelVersion === 'auto' ? '智能匹配' : `Chrome ${selectedKernelVersion}`;
-  $('kernel-dropdown').style.display = 'none';
+// 内核版本与 UA 随机范围双向互通：智能匹配 = 全部（随机）；Chrome X = 仅在 Chrome X 内随机
+function applyVerLink(val) {
+  const v = val || 'auto';
+  selectedKernelVersion = v;
+  $('f-kernel').value = v === 'auto' ? '智能匹配' : `Chrome ${v}`;
+  uaVerSel = v === 'auto' ? '' : v;
+  syncUaModeText();
   updateKernelHint();
+  if (uaMode === 'all') updateUaPreview();
+}
+
+function selectKernel(val) {
+  $('kernel-dropdown').style.display = 'none';
+  applyVerLink(val);
 }
 
 // 下载指定大版本内核（进度通过 kernel:progress 实时推送）
@@ -215,7 +264,7 @@ async function downloadKernel(major) {
 
   const res = await ipcRenderer.invoke('kernel:download', major);
   if (res.success === false) {
-    alert(`Chrome ${major} 内核下载失败：` + (res.message || '未知错误'));
+    uiToast(`Chrome ${major} 内核下载失败：` + (res.message || '未知错误'), 'error', 4500);
   }
   await refreshKernelStatus();
   renderKernelDropdown();
@@ -284,7 +333,7 @@ async function addGroupFromInput() {
   }
   const res = await ipcRenderer.invoke('group:create', name);
   if (res.success === false) {
-    alert('添加分组失败：' + (res.message || '未知错误'));
+    uiToast('添加分组失败：' + (res.message || '未知错误'), 'error', 4500);
     return;
   }
   groupsCache = res.groups;
@@ -298,10 +347,11 @@ async function addGroupFromInput() {
 async function deleteGroup(name) {
   name = (name || '').trim();
   if (!name) return;
-  if (!confirm(`删除分组「${name}」？\n该分组下的环境将变为"未分组"。`)) return;
+  const okDel = await showConfirm('删除分组', `确定删除分组「${name}」？\n该分组下的环境将变为"未分组"。`);
+  if (!okDel) return;
   const res = await ipcRenderer.invoke('group:delete', name);
   if (res.success === false) {
-    alert('删除分组失败：' + (res.message || '未知错误'));
+    uiToast('删除分组失败：' + (res.message || '未知错误'), 'error', 4500);
     return;
   }
   groupsCache = res.groups;
@@ -494,7 +544,7 @@ function syncTagsFromPlatforms() {
   $('f-tags').value = merged.join('\n');
 }
 
-// Tab 切换时的特殊处理
+// 平台网格懒加载（长页面布局无 tab 切换，改为弹窗打开时一次性渲染）
 function handleTabSwitch(tabName) {
   if (tabName === 'accounts') {
     renderPlatformGrid();
@@ -533,6 +583,238 @@ function setSegmentedVal(id, val) {
 }
 
 // ============================================================
+// 操作系统复选下拉按钮组 + User-Agent 行
+// 复用主进程指纹生成器的 OS_POOLS（渲染进程 nodeIntegration 直接 require）
+// ============================================================
+const OS_ICONS = { windows: '🪟', macos: '🍎', linux: '🐧', android: '🤖', ios: '📱' };
+let uaMode = 'all'; // all=启动时从所选系统 UA 池随机 / custom=使用自定义 UA
+
+// 渲染 5 个 OS 复选下拉按钮（单选语义：点击切换，点击已勾选的可取消勾选）
+function renderOsCheckRow() {
+  $('os-check-row').innerHTML = Object.keys(OS_POOLS).map(os => `
+    <div class="os-check" data-val="${os}" title="${OS_POOLS[os].label}">
+      <span class="os-check-box"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></span>
+      <span class="os-check-icon">${OS_ICONS[os] || ''}</span>
+      <span class="os-check-arrow"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg></span>
+      <div class="combo-dropdown os-ua-dropdown" style="display:none;"></div>
+    </div>
+  `).join('');
+}
+
+// 当前选中的操作系统（单选）
+function getSelectedOs() {
+  const el = document.querySelector('#os-check-row .os-check.active');
+  return el ? el.dataset.val : null;
+}
+
+function setOsChecked(osVal) {
+  document.querySelectorAll('#os-check-row .os-check').forEach(el => {
+    el.classList.toggle('active', el.dataset.val === osVal);
+  });
+}
+
+function closeAllOsDropdowns() {
+  document.querySelectorAll('#os-check-row .os-ua-dropdown').forEach(dd => {
+    dd.style.display = 'none';
+  });
+}
+
+// 每个 OS 的版本勾选状态（osKey → 版本勾选状态；空/缺省 = All X，全版本随机；单选，最多一个版本）
+const osVersionSel = {};
+
+// 随机模式的浏览器版本范围（'' = 全部版本；如 '149' = 只在该 Chrome 大版本内随机）
+let uaVerSel = '';
+
+// 展开前渲染该系统的版本勾选列表：首项 "All X"（全选）+ 各版本多选，右侧对勾标记
+function renderOsVersionDropdown(osVal) {
+  const pool = OS_POOLS[osVal];
+  if (!pool) return;
+  const dd = document.querySelector(`#os-check-row .os-check[data-val="${osVal}"] .os-ua-dropdown`);
+  const sel = (osVersionSel[osVal] || []).filter(v => pool.versions.includes(v));
+  const isAll = !sel.length;
+  const check = '<span class="ver-check"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></span>';
+  dd.innerHTML =
+    `<div class="os-ver-row all${isAll ? ' checked' : ''}" data-ver="">All ${pool.label}${isAll ? check : ''}</div>` +
+    pool.versions.map(v =>
+      `<div class="os-ver-row${sel.includes(v) ? ' checked' : ''}" data-ver="${v}">${pool.label} ${v}${sel.includes(v) ? check : ''}</div>`
+    ).join('');
+}
+
+function bindOsCheckRow() {
+  renderOsCheckRow();
+  const row = $('os-check-row');
+
+  row.onclick = (e) => {
+    const btn = e.target.closest('.os-check');
+    if (!btn) return;
+    const dd = btn.querySelector('.os-ua-dropdown');
+
+    // 点击下拉里的版本行：单选该版本（再次点击取消 → 恢复 All），点 "All X" 恢复全版本随机
+    const verRow = e.target.closest('.os-ver-row');
+    if (verRow) {
+      setOsChecked(btn.dataset.val);
+      if (!verRow.dataset.ver) {
+        osVersionSel[btn.dataset.val] = [];
+      } else {
+        const v = verRow.dataset.ver;
+        // 单选：已选中该版本则取消（回到 All），否则只选它
+        const cur = osVersionSel[btn.dataset.val] || [];
+        osVersionSel[btn.dataset.val] = cur.length === 1 && cur[0] === v ? [] : [v];
+      }
+      renderOsVersionDropdown(btn.dataset.val);
+      syncUaVerSel(btn.dataset.val);
+      if (uaMode === 'all') updateUaPreview();
+      return;
+    }
+
+    // 点击箭头：开合该系统的版本勾选下拉
+    if (e.target.closest('.os-check-arrow')) {
+      const isOpen = dd.style.display === 'block';
+      closeAllOsDropdowns();
+      if (!isOpen) {
+        renderOsVersionDropdown(btn.dataset.val);
+        // fixed 定位：脱离 modal-body 滚动容器的 overflow 裁剪，
+        // 否则下拉超出弹窗可视区的下半部分会被裁掉、点击穿透到 modal-foot 无响应
+        const r = btn.getBoundingClientRect();
+        dd.style.position = 'fixed';
+        dd.style.left = r.left + 'px';
+        dd.style.top = (r.bottom + 4) + 'px';
+        dd.style.maxHeight = Math.max(140, Math.min(260, window.innerHeight - r.bottom - 16)) + 'px';
+        dd.style.display = 'block';
+      }
+      return;
+    }
+
+    // 点击主体（复选框/图标）：单选切换，点击已勾选的取消勾选 + 刷新随机 UA 预览
+    if (btn.classList.contains('active')) {
+      btn.classList.remove('active');
+    } else {
+      setOsChecked(btn.dataset.val);
+    }
+    closeAllOsDropdowns();
+    syncUaVerSel(btn.dataset.val);
+    if (uaMode === 'all') updateUaPreview();
+  };
+}
+
+// OS / OS 版本变化后，浏览器版本随机范围可能已不在新池中，失效则重置为全部版本
+function syncUaVerSel(osVal) {
+  if (uaVerSel && !poolBrowserVers(osVal).some(x => x.v === uaVerSel)) {
+    uaVerSel = '';
+    syncUaModeText();
+  }
+}
+
+// UA 模式切换：全部（随机）→ 输入框只读展示预览；自定义 → 可编辑
+function setUaMode(mode) {
+  uaMode = mode;
+  $('f-ua-text').readOnly = mode === 'all';
+  $('f-ua-text').placeholder = mode === 'all'
+    ? '启动时从所选系统 UA 池随机'
+    : '输入自定义 UserAgent 字符串';
+  document.querySelectorAll('#ua-mode-dropdown .combo-option').forEach(o => {
+    o.classList.toggle('active', o.dataset.uaMode === mode);
+  });
+  syncUaModeText();
+  if (mode === 'all') updateUaPreview();
+}
+
+// 模式框文案：限定浏览器版本时显示版本号，否则回落到占位符"全部"
+function syncUaModeText() {
+  $('f-ua-mode').value = (uaMode === 'all' && uaVerSel)
+    ? poolBrowserVers(getSelectedOs() || 'windows').find(x => x.v === uaVerSel)?.label || uaVerSel
+    : '';
+}
+
+// 当前随机范围内的浏览器版本集合（已按 OS 版本勾选过滤；返回 [{ v, label }]，如 '153' / "Chrome 153"）
+function poolBrowserVers(osVal) {
+  const pool = OS_POOLS[osVal] || OS_POOLS.windows;
+  const sel = (osVersionSel[osVal] || []).filter(v => pool.versions.includes(v));
+  let entries = sel.length ? pool.ua.filter(e => e.ver && sel.includes(e.ver)) : pool.ua;
+  if (!entries.length) entries = pool.ua;
+  const out = [];
+  const seen = new Set();
+  for (const e of entries) {
+    const m = e.ua.match(/(?:Chrome|Firefox)\/(\d+)\./);
+    if (!m || seen.has(m[1])) continue;
+    seen.add(m[1]);
+    out.push({ v: m[1], label: `${e.ua.includes('Firefox/') ? 'Firefox' : 'Chrome'} ${m[1]}` });
+  }
+  return out;
+}
+
+// 从指定系统的 UA 池随机取一条（限勾选的 OS 版本 + 浏览器版本；均未限定 = 全池随机）
+function randomUa(osVal) {
+  const pool = OS_POOLS[osVal] || OS_POOLS.windows;
+  let entries = pool.ua;
+  const sel = (osVersionSel[osVal] || []).filter(v => pool.versions.includes(v));
+  if (sel.length) {
+    const filtered = entries.filter(e => e.ver && sel.includes(e.ver));
+    if (filtered.length) entries = filtered;
+  }
+  if (uaVerSel) {
+    const re = new RegExp(`(?:Chrome|Firefox)/${uaVerSel}[.]`);
+    const filtered = entries.filter(e => re.test(e.ua));
+    if (filtered.length) entries = filtered;
+  }
+  return entries[Math.floor(Math.random() * entries.length)].ua;
+}
+
+// 全部（随机）模式下，输入框展示一条即时预览
+function updateUaPreview() {
+  if (uaMode === 'all') $('f-ua-text').value = randomUa(getSelectedOs() || 'windows');
+}
+
+// 渲染下拉里的浏览器版本列表（勾选项高亮，样式复用 combo-option）
+function renderUaVerOptions() {
+  const vers = poolBrowserVers(getSelectedOs() || 'windows');
+  $('ua-ver-options').innerHTML = vers.map(x =>
+    `<div class="combo-option${uaVerSel === x.v ? ' active' : ''}" data-ua-ver="${x.v}">${x.label}</div>`
+  ).join('');
+}
+
+function bindUaRow() {
+  // "全部"下拉：UA 模式（全部随机 / 自定义）+ 浏览器版本随机范围
+  const openUaModeDropdown = () => {
+    renderUaVerOptions();
+    $('ua-mode-dropdown').style.display = 'block';
+  };
+  $('f-ua-mode').onfocus = openUaModeDropdown;
+  $('f-ua-mode').onclick = openUaModeDropdown;
+
+  $('ua-mode-dropdown').onclick = (e) => {
+    // 版本选项：限定随机范围（再次点击取消 → 全部版本），不关闭下拉便于继续选择
+    const verOpt = e.target.closest('#ua-ver-options .combo-option');
+    if (verOpt) {
+      // 版本选项：限定随机范围（再次点击取消 → 全部版本），并同步内核版本选择
+      applyVerLink(uaVerSel === verOpt.dataset.uaVer ? '' : verOpt.dataset.uaVer);
+      renderUaVerOptions();
+      return;
+    }
+    // 模式选项（全部/自定义）；"全部（随机）" = 不限版本，同时内核回到智能匹配
+    const opt = e.target.closest('.combo-option');
+    if (!opt) return;
+    $('ua-mode-dropdown').style.display = 'none';
+    if (opt.dataset.uaMode === 'all') applyVerLink('');
+    setUaMode(opt.dataset.uaMode);
+  };
+
+  // 复制 UA
+  $('btn-ua-copy').onclick = async () => {
+    const val = $('f-ua-text').value.trim();
+    if (!val) return;
+    clipboard.writeText(val);
+    $('btn-ua-copy').classList.add('copied');
+    setTimeout(() => $('btn-ua-copy').classList.remove('copied'), 800);
+  };
+
+  // 随机：随机模式下刷新预览；自定义模式下填入随机模板作为编辑起点
+  $('btn-ua-random').onclick = () => {
+    $('f-ua-text').value = randomUa(getSelectedOs() || 'windows');
+  };
+}
+
+// ============================================================
 // 地理位置：权限模式（询问/允许/禁用）与来源模式（跟随IP/自定义）联动
 // ============================================================
 function syncGeoModeUI() {
@@ -540,32 +822,67 @@ function syncGeoModeUI() {
   const mode = getSegmentedVal('seg-geo-mode');
   // 禁用权限后，来源选择和坐标输入无意义，一并隐藏
   $('seg-geo-mode').style.display = perm === 'block' ? 'none' : 'flex';
-  $('f-geo-custom').style.display = (perm !== 'block' && mode === 'custom') ? 'flex' : 'none';
+  $('f-geo-custom').style.display = (perm !== 'block' && mode === 'custom') ? 'block' : 'none';
 }
 
 // ============================================================
 // 语言编辑器：单个输入框内嵌多语言标签（chips）+ 候选下拉
+// 按地区分组展示，东南亚置顶
 // ============================================================
 const LANG_CATALOG = [
-  { code: 'en-US', name: '英语（美国）' }, { code: 'en-GB', name: '英语（英国）' },
-  { code: 'en-CA', name: '英语（加拿大）' }, { code: 'en-AU', name: '英语（澳大利亚）' },
-  { code: 'en-SG', name: '英语（新加坡）' }, { code: 'en-IN', name: '英语（印度）' },
-  { code: 'zh-CN', name: '中文（简体）' }, { code: 'zh-TW', name: '中文（繁体）' },
-  { code: 'zh-HK', name: '中文（香港）' }, { code: 'ja-JP', name: '日语' },
-  { code: 'ko-KR', name: '韩语' }, { code: 'fr-FR', name: '法语' },
-  { code: 'de-DE', name: '德语' }, { code: 'es-ES', name: '西班牙语' },
-  { code: 'es-MX', name: '西班牙语（墨西哥）' }, { code: 'pt-BR', name: '葡萄牙语（巴西）' },
-  { code: 'pt-PT', name: '葡萄牙语' }, { code: 'it-IT', name: '意大利语' },
-  { code: 'ru-RU', name: '俄语' }, { code: 'ar-SA', name: '阿拉伯语' },
-  { code: 'th-TH', name: '泰语' }, { code: 'vi-VN', name: '越南语' },
-  { code: 'id-ID', name: '印尼语' }, { code: 'ms-MY', name: '马来语' },
-  { code: 'tr-TR', name: '土耳其语' }, { code: 'nl-NL', name: '荷兰语' },
-  { code: 'pl-PL', name: '波兰语' }, { code: 'sv-SE', name: '瑞典语' },
-  { code: 'nb-NO', name: '挪威语' }, { code: 'da-DK', name: '丹麦语' },
-  { code: 'fi-FI', name: '芬兰语' }, { code: 'el-GR', name: '希腊语' },
-  { code: 'he-IL', name: '希伯来语' }, { code: 'uk-UA', name: '乌克兰语' },
-  { code: 'cs-CZ', name: '捷克语' }, { code: 'hu-HU', name: '匈牙利语' },
+  // 东南亚
+  { code: 'en-SG', name: '英语（新加坡）', region: '东南亚' },
+  { code: 'en-PH', name: '英语（菲律宾）', region: '东南亚' },
+  { code: 'th-TH', name: '泰语', region: '东南亚' },
+  { code: 'vi-VN', name: '越南语', region: '东南亚' },
+  { code: 'id-ID', name: '印尼语', region: '东南亚' },
+  { code: 'ms-MY', name: '马来语', region: '东南亚' },
+  { code: 'fil-PH', name: '菲律宾语', region: '东南亚' },
+  { code: 'my-MM', name: '缅甸语', region: '东南亚' },
+  { code: 'km-KH', name: '高棉语（柬埔寨）', region: '东南亚' },
+  { code: 'lo-LA', name: '老挝语', region: '东南亚' },
+  // 东亚
+  { code: 'zh-CN', name: '中文（简体）', region: '东亚' },
+  { code: 'zh-TW', name: '中文（繁体）', region: '东亚' },
+  { code: 'zh-HK', name: '中文（香港）', region: '东亚' },
+  { code: 'ja-JP', name: '日语', region: '东亚' },
+  { code: 'ko-KR', name: '韩语', region: '东亚' },
+  // 北美
+  { code: 'en-US', name: '英语（美国）', region: '北美' },
+  { code: 'en-CA', name: '英语（加拿大）', region: '北美' },
+  // 南亚
+  { code: 'en-IN', name: '英语（印度）', region: '南亚' },
+  // 大洋洲
+  { code: 'en-AU', name: '英语（澳大利亚）', region: '大洋洲' },
+  // 欧洲
+  { code: 'en-GB', name: '英语（英国）', region: '欧洲' },
+  { code: 'fr-FR', name: '法语', region: '欧洲' },
+  { code: 'de-DE', name: '德语', region: '欧洲' },
+  { code: 'es-ES', name: '西班牙语', region: '欧洲' },
+  { code: 'pt-PT', name: '葡萄牙语', region: '欧洲' },
+  { code: 'it-IT', name: '意大利语', region: '欧洲' },
+  { code: 'ru-RU', name: '俄语', region: '欧洲' },
+  { code: 'tr-TR', name: '土耳其语', region: '欧洲' },
+  { code: 'nl-NL', name: '荷兰语', region: '欧洲' },
+  { code: 'pl-PL', name: '波兰语', region: '欧洲' },
+  { code: 'sv-SE', name: '瑞典语', region: '欧洲' },
+  { code: 'nb-NO', name: '挪威语', region: '欧洲' },
+  { code: 'da-DK', name: '丹麦语', region: '欧洲' },
+  { code: 'fi-FI', name: '芬兰语', region: '欧洲' },
+  { code: 'el-GR', name: '希腊语', region: '欧洲' },
+  { code: 'uk-UA', name: '乌克兰语', region: '欧洲' },
+  { code: 'cs-CZ', name: '捷克语', region: '欧洲' },
+  { code: 'hu-HU', name: '匈牙利语', region: '欧洲' },
+  // 拉美
+  { code: 'es-MX', name: '西班牙语（墨西哥）', region: '拉美' },
+  { code: 'pt-BR', name: '葡萄牙语（巴西）', region: '拉美' },
+  // 中东
+  { code: 'ar-SA', name: '阿拉伯语', region: '中东' },
+  { code: 'he-IL', name: '希伯来语', region: '中东' },
 ];
+
+// 候选下拉的分组顺序：东南亚优先
+const REGION_ORDER = ['东南亚', '东亚', '北美', '南亚', '大洋洲', '欧洲', '拉美', '中东'];
 
 function langDisplayName(code) {
   const hit = LANG_CATALOG.find(l => l.code === code);
@@ -611,25 +928,43 @@ function renderLangChips() {
 function renderLangDropdown(query) {
   const dd = $('lang-dropdown');
   const ql = (query || '').toLowerCase();
-  const list = LANG_CATALOG
+  const pool = LANG_CATALOG
     .filter(l => !currentLangs.includes(l.code))
-    .filter(l => !ql || l.name.toLowerCase().includes(ql) || l.code.toLowerCase().includes(ql))
-    .slice(0, 12);
+    .filter(l => !ql || l.name.toLowerCase().includes(ql)
+      || l.code.toLowerCase().includes(ql)
+      || (l.region || '').toLowerCase().includes(ql));
 
-  if (!list.length) { dd.style.display = 'none'; return; }
+  if (!pool.length) { dd.style.display = 'none'; return; }
 
   dd.innerHTML = '';
-  list.forEach(l => {
-    const item = document.createElement('div');
-    item.className = 'lang-option';
-    item.textContent = `${l.name} (${l.code})`;
-    item.onmousedown = (e) => {
-      e.preventDefault();  // 防止 input 先失焦隐藏下拉
-      addLang(l.code);
-      $('f-lang-input').value = '';
-      dd.style.display = 'none';
-    };
-    dd.appendChild(item);
+  // 按地区分组渲染（东南亚组置顶）
+  REGION_ORDER.forEach(region => {
+    const items = pool.filter(l => (l.region || '其他') === region);
+    if (!items.length) return;
+
+    const title = document.createElement('div');
+    title.className = 'lang-group-title';
+    title.textContent = region;
+    dd.appendChild(title);
+
+    items.forEach(l => {
+      const item = document.createElement('div');
+      item.className = 'lang-option';
+      const nm = document.createElement('span');
+      nm.textContent = l.name;
+      const cd = document.createElement('span');
+      cd.className = 'lang-code';
+      cd.textContent = l.code;
+      item.appendChild(nm);
+      item.appendChild(cd);
+      item.onmousedown = (e) => {
+        e.preventDefault();  // 防止 input 先失焦隐藏下拉
+        addLang(l.code);
+        $('f-lang-input').value = '';
+        dd.style.display = 'none';
+      };
+      dd.appendChild(item);
+    });
   });
   dd.style.display = 'block';
 }
@@ -639,7 +974,7 @@ function addLangFromInput() {
   const v = input.value.trim();
   if (!v) return;
   if (!/^[a-zA-Z]{2,3}(-[a-zA-Z0-9]{2,8})*$/.test(v)) {
-    alert('语言代码格式不正确，示例：en-US、zh-CN、fr-FR');
+    uiToast('语言代码格式不正确，示例：en-US、zh-CN、fr-FR', 'warn');
     return;
   }
   const parts = v.split('-');
@@ -816,7 +1151,7 @@ function openCreate() {
   $('modal-title').textContent = '新建环境';
   resetForm();
   $('modal').style.display = 'flex';
-  showTab('basic');
+  initModalView();
   refreshKernelAvailability();
 }
 
@@ -828,7 +1163,7 @@ function openEdit(id) {
   $('modal-title').textContent = `编辑环境 - ${p.name}`;
   fillForm(p);
   $('modal').style.display = 'flex';
-  showTab('basic');
+  initModalView();
   refreshKernelAvailability();
 }
 
@@ -838,10 +1173,27 @@ function closeModal() {
   fingerprintSeedOverride = null;
 }
 
-function showTab(name) {
+// 点亮左侧导航项
+function setActiveNav(name) {
   document.querySelectorAll('.side-nav-item').forEach(t => t.classList.toggle('active', t.dataset.panel === name));
-  document.querySelectorAll('.tab-panel').forEach(p => p.classList.toggle('active', p.dataset.panel === name));
-  handleTabSwitch(name);
+}
+
+// 锚点导航：平滑滚动到指定分区（长页面流式布局）
+function scrollToSection(name) {
+  const body = document.querySelector('#modal .modal-body');
+  const section = document.querySelector(`#modal .form-section[data-panel="${name}"]`);
+  if (!body || !section) return;
+  setActiveNav(name);
+  const target = section.offsetTop - 24; // 扣除顶部内边距，让分区标题落在可视区顶部
+  body.scrollTo({ top: Math.max(0, target), behavior: 'smooth' });
+}
+
+// 每次打开弹窗：回到顶部 + 一次性渲染平台网格
+function initModalView() {
+  setActiveNav('basic');
+  handleTabSwitch('accounts');
+  const body = document.querySelector('#modal .modal-body');
+  if (body) body.scrollTop = 0;
 }
 
 function resetForm() {
@@ -856,7 +1208,8 @@ function resetForm() {
   $('f-group-new').classList.remove('error');
   $('group-add-error').style.display = 'none';
   selectKernel('auto');
-  setSegmentedVal('seg-os', 'windows');
+  setOsChecked('windows');
+  for (const k in osVersionSel) delete osVersionSel[k];  // 版本勾选复位为 All
   updateKernelHint();
   $('f-tags').value = '';
   $('f-proxy-type').value = 'none';
@@ -880,6 +1233,7 @@ function resetForm() {
   $('f-tz').style.display = 'none';
   $('f-tz').value = '';
   syncGeoModeUI();
+  $('f-geo-city').value = '';
   $('f-geo-lat').value = '';
   $('f-geo-lng').value = '';
   $('f-lang-custom').style.display = 'none';
@@ -887,9 +1241,8 @@ function resetForm() {
   currentLangs = [];
   renderLangChips();
 
-  setSegmentedVal('seg-ua-mode', 'random');
-  $('f-ua-text').value = '';
-  $('f-ua-text').style.display = 'none';
+  setUaMode('all');
+  uaVerSel = '';
   $('f-res').value = '';
   $('f-hw').value = '';
   $('f-mem').value = '';
@@ -901,7 +1254,7 @@ function fillForm(p) {
   $('f-labels-input').value = '';
   currentLabels = (p.labels || []).map(normLabel);
   renderLabelChips();
-  setSegmentedVal('seg-os', p.os || 'windows');
+  setOsChecked(p.os || 'windows');
   selectKernel(p.kernelVersion || 'auto');  // 智能匹配 或 指定大版本
   updateKernelHint();
   $('f-tags').value = (p.tags || []).join('\n');
@@ -917,6 +1270,12 @@ function fillForm(p) {
   $('f-proxy-pass').value = p.proxy.password || '';
 
   const fp = p.fingerprint || {};
+
+  // OS 版本勾选回填（旧数据无 osVersions = All，全版本随机；单选，旧多选数据只取第一个）
+  for (const k in osVersionSel) delete osVersionSel[k];
+  if (Array.isArray(fp.osVersions) && fp.osVersions.length) {
+    osVersionSel[p.os || 'windows'] = fp.osVersions.slice(0, 1);
+  }
 
   // WebRTC
   setSegmentedVal('seg-webrtc', fp.webRTC || 'disable');
@@ -968,13 +1327,13 @@ function fillForm(p) {
 
   // UA
   if (fp.userAgent) {
-    setSegmentedVal('seg-ua-mode', 'custom');
-    $('f-ua-text').style.display = 'block';
+    setUaMode('custom');
     $('f-ua-text').value = fp.userAgent;
   } else {
-    setSegmentedVal('seg-ua-mode', 'random');
-    $('f-ua-text').style.display = 'none';
-    $('f-ua-text').value = '';
+    setUaMode('all');
+    // 浏览器版本随机范围回填（旧数据无 browserVer = 全部版本）
+    uaVerSel = fp.browserVer ? String(fp.browserVer) : '';
+    syncUaModeText();
   }
 
   // 分辨率 / CPU / 内存
@@ -989,7 +1348,15 @@ function fillForm(p) {
 
 async function saveProfile() {
   const name = $('f-name').value.trim();
-  if (!name) { alert('请填写环境名称'); showTab('basic'); return; }
+  if (!name) { uiToast('请填写环境名称', 'warn'); scrollToSection('basic'); $('f-name').focus(); return; }
+
+  // 操作系统：允许取消勾选，但保存时必须至少选一个
+  const selectedOs = getSelectedOs();
+  if (!selectedOs) {
+    uiToast('请至少选择一个操作系统', 'warn');
+    scrollToSection('basic');
+    return;
+  }
 
   // 代理
   const proxyType = $('f-proxy-type').value;
@@ -1004,8 +1371,8 @@ async function saveProfile() {
       };
 
   if (proxyType !== 'none' && (!proxy.host || !proxy.port)) {
-    alert('启用代理时必须填写 IP 和端口');
-    showTab('proxy'); return;
+    uiToast('启用代理时必须填写 IP 和端口', 'warn');
+    scrollToSection('proxy'); return;
   }
 
   // 指纹覆盖 —— 基于分段控件值
@@ -1050,10 +1417,19 @@ async function saveProfile() {
     delete fpOverrides.language;
   }
 
-  // UA
-  if (getSegmentedVal('seg-ua-mode') === 'custom' && $('f-ua-text').value.trim()) {
+  // UA：自定义模式且填写了 UA 才覆盖；全部（随机）模式启动时从所选系统池随机
+  if (uaMode === 'custom' && $('f-ua-text').value.trim()) {
     fpOverrides.userAgent = $('f-ua-text').value.trim();
   }
+  // 随机模式限定浏览器版本 → 写入覆盖项，启动时按版本筛选 UA 池
+  if (uaMode === 'all' && uaVerSel) {
+    fpOverrides.browserVer = uaVerSel;
+  }
+
+  // OS 版本勾选：仅保存当前系统勾选的版本（All X 时不写入，启动时全版本随机）
+  const selPool = OS_POOLS[selectedOs];
+  const selVers = (osVersionSel[selectedOs] || []).filter(v => selPool && selPool.versions.includes(v));
+  if (selVers.length) fpOverrides.osVersions = selVers;
 
   // 分辨率 / CPU / 内存
   if ($('f-res').value) {
@@ -1066,7 +1442,7 @@ async function saveProfile() {
   // 构造 payload
   const payload = {
     name,
-    os: getSegmentedVal('seg-os') || 'windows',
+    os: selectedOs,
     browser: 'chrome',
     kernelVersion: selectedKernelVersion || 'auto',
     group: groupInputValue(),
@@ -1087,7 +1463,7 @@ async function saveProfile() {
       closeModal();
       loadProfiles();
     } else {
-      alert('保存失败：' + (result.message || '未知错误'));
+      uiToast('保存失败：' + (result.message || '未知错误'), 'error', 4500);
     }
     return;
   }
@@ -1099,7 +1475,7 @@ async function saveProfile() {
     const item = { ...payload, name: i === 1 ? payload.name : `${payload.name}${i}` };
     const result = await ipcRenderer.invoke('profile:create', item);
     if (result.success === false) {
-      alert(`第 ${i} 个环境创建失败：` + (result.message || '未知错误'));
+      uiToast(`第 ${i} 个环境创建失败：` + (result.message || '未知错误'), 'error', 4500);
       break;
     }
   }
@@ -1113,7 +1489,7 @@ async function saveProfile() {
 // ============================================================
 async function testProxy() {
   const proxyType = $('f-proxy-type').value;
-  if (proxyType === 'none') { alert('未启用代理，无需测试'); return; }
+  if (proxyType === 'none') { uiToast('未启用代理，无需测试'); return; }
 
   const cfg = {
     protocol: proxyType,
@@ -1122,7 +1498,7 @@ async function testProxy() {
     username: $('f-proxy-user').value.trim(),
     password: $('f-proxy-pass').value.trim(),
   };
-  if (!cfg.host || !cfg.port) { alert('请先填写 IP 和端口'); return; }
+  if (!cfg.host || !cfg.port) { uiToast('请先填写 IP 和端口', 'warn'); return; }
 
   const btn = $('btn-proxy-test');
   btn.disabled = true;
@@ -1151,18 +1527,18 @@ async function launch(id) {
     // 延迟刷新等状态更新
     setTimeout(loadProfiles, 800);
   } else {
-    alert('启动失败：' + result.message);
+    uiToast('启动失败：' + result.message, 'error', 4500);
   }
 }
 
 async function stop(id) {
   const result = await ipcRenderer.invoke('browser:stop', id);
   if (result.success) setTimeout(loadProfiles, 500);
-  else alert('停止失败：' + result.message);
+  else uiToast('停止失败：' + result.message, 'error', 4500);
 }
 
 async function stopAll() {
-  if (!confirm('确定关闭所有运行中的环境？')) return;
+  if (!(await showConfirm('关闭环境', '确定关闭所有运行中的环境？'))) return;
   await ipcRenderer.invoke('browser:stopAll');
   setTimeout(loadProfiles, 600);
 }
@@ -1171,29 +1547,67 @@ async function del(id) {
   const p = profiles.find(x => x.id === id);
   if (!p) return;
   if (p.runtime.status === 'running') {
-    alert('无法删除运行中的环境，请先停止'); return;
+    uiToast('无法删除运行中的环境，请先停止', 'warn'); return;
   }
   showConfirm('删除环境', `确定删除「${p.name}」吗？该环境的所有浏览器数据（Cookies、缓存、指纹）将被永久删除，且无法恢复。`, async () => {
     const result = await ipcRenderer.invoke('profile:delete', id);
     if (result.success) loadProfiles();
-    else alert('删除失败：' + result.message);
+    else uiToast('删除失败：' + result.message, 'error', 4500);
   });
 }
 
 // ============================================================
-// 确认弹窗
+// 页内提示组件（Toast + 确认弹窗）
+// 替代原生 alert()/confirm()：Electron Windows 下原生模态会阻塞
+// 渲染进程，且关闭后窗口焦点不归还，表现为"点一次按钮后整窗
+// 无法点击"。全部改为页内组件，不阻塞、不抢焦点。
 // ============================================================
-let confirmCb = null;
+let toastBox = null;
+function uiToast(msg, type = 'info', duration = 2800) {
+  if (!toastBox || !document.body.contains(toastBox)) {
+    toastBox = document.createElement('div');
+    toastBox.id = 'ui-toast-box';
+    document.body.appendChild(toastBox);
+  }
+  const t = document.createElement('div');
+  t.className = 'ui-toast ' + type;
+  t.textContent = msg;
+  toastBox.appendChild(t);
+  requestAnimationFrame(() => t.classList.add('show'));
+  setTimeout(() => {
+    t.classList.remove('show');
+    setTimeout(() => t.remove(), 260);
+  }, duration);
+}
+
+// 确认弹窗：返回 Promise<boolean>；兼容旧的回调用法 showConfirm(title, msg, cb)
+let confirmResolve = null;
 function showConfirm(title, msg, cb) {
+  if (confirmResolve) { const prev = confirmResolve; confirmResolve = null; prev(false); }
   $('confirm-title').textContent = title;
   $('confirm-msg').textContent = msg;
-  confirmCb = cb;
   $('confirm-modal').style.display = 'flex';
+  return new Promise((resolve) => {
+    confirmResolve = (ok) => {
+      confirmResolve = null;
+      resolve(ok);
+      if (ok && cb) cb();
+    };
+  });
 }
-$('confirm-yes').onclick = () => {
+function closeConfirm(ok) {
   $('confirm-modal').style.display = 'none';
-  if (confirmCb) { confirmCb(); confirmCb = null; }
-};
+  if (confirmResolve) { const r = confirmResolve; confirmResolve = null; r(ok); }
+}
+$('confirm-yes').onclick = () => closeConfirm(true);
+// 修复：取消按钮此前未绑定事件，点击后弹窗永不关闭，全屏遮罩会挡住所有按钮
+$('confirm-no').onclick = () => closeConfirm(false);
+$('confirm-modal').addEventListener('mousedown', (e) => {
+  if (e.target === $('confirm-modal')) closeConfirm(false);
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && $('confirm-modal').style.display === 'flex') closeConfirm(false);
+});
 
 // ============================================================
 // 工具
