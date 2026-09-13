@@ -13,7 +13,9 @@
 
 本项目是一个基于 **Electron** 的桌面应用，用来在**同一台 Windows 电脑**上管理多个互不干扰的浏览器"环境（Profile）"。
 
-<img width="1362" height="856" alt="111" src="https://github.com/user-attachments/assets/0df13950-9588-491f-8ac6-b898794bc993" />
+<img width="1217" height="786" alt="螢幕擷取畫面 2026-09-13 112012" src="https://github.com/user-attachments/assets/ab382958-7965-4efc-a186-1d03628faab5" />
+<img width="1342" height="817" alt="螢幕擷取畫面 2026-09-13 111948" src="https://github.com/user-attachments/assets/ab70c23d-bbe3-43e0-a89e-2f9665c5bf11" />
+
 
 每个环境具备：
 
