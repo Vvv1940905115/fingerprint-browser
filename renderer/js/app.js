@@ -17,7 +17,7 @@ let editingId = null;       // null=创建新环境, string=编辑
 let fingerprintSeedOverride = null; // 编辑时"换一套新指纹"覆盖 seed
 let kernelAvailability = null;      // 系统浏览器检测结果 { electron, chrome, edge }
 let kernelStatus = [];              // 内核版本状态 [{ major, installed, downloading, percent }]
-let selectedKernelVersion = 'auto'; // 当前选中的内核版本: 'auto'（智能匹配）| '150' | '148' ...
+let selectedKernelVersion = null;   // 当前选中的内核版本: '151' | '149' | ...
 
 // 标签：[{ name, color }]，5 色圆点调色板
 const LABEL_COLORS = ['#ef5350', '#42a5f5', '#66bb6a', '#fdd663', '#ab47bc'];
@@ -85,6 +85,10 @@ function bindEvents() {
   bindSegmented('seg-lang-mode', (val) => {
     $('f-lang-custom').style.display = val === 'custom' ? 'block' : 'none';
   });
+  bindSegmented('seg-hw-accel');
+  bindSegmented('seg-ssl');
+  bindSegmented('seg-dnt');
+  bindSegmented('seg-portscan');
 
   // 代理类型联动
   $('f-proxy-type').onchange = () => {
@@ -191,7 +195,7 @@ function bindMainTabs() {
 }
 
 // ============================================================
-// 内核版本下拉：智能匹配 / Chrome 150~138（未安装带下载图标，支持进度）
+// 内核版本下拉：仅 Chrome for Testing；未安装的版本提供下载入口
 // ============================================================
 function bindKernelCombo() {
   const open = async () => {
@@ -218,6 +222,13 @@ function bindKernelCombo() {
 async function refreshKernelStatus() {
   const list = await ipcRenderer.invoke('kernel:list');
   if (Array.isArray(list)) kernelStatus = list;
+  if (!selectedKernelVersion) applyVerLink(newestInstalledKernel());
+}
+
+function newestInstalledKernel() {
+  return kernelStatus.filter(s => s.installed)
+    .sort((a, b) => Number(b.major) - Number(a.major))
+    .map(s => s.major)[0] || null;
 }
 
 function renderKernelDropdown() {
@@ -237,12 +248,12 @@ function renderKernelDropdown() {
   }).join('');
 }
 
-// 内核版本与 UA 随机范围双向互通：智能匹配 = 全部（随机）；Chrome X = 仅在 Chrome X 内随机
+// 内核版本与 UA 随机范围双向互通：选中 Chrome X = UA 仅在 X 内随机；未选中 = 取最新已下载内核
 function applyVerLink(val) {
-  const v = val || 'auto';
+  const v = val || newestInstalledKernel();
   selectedKernelVersion = v;
-  $('f-kernel').value = v === 'auto' ? '智能匹配' : `Chrome ${v}`;
-  uaVerSel = v === 'auto' ? '' : v;
+  $('f-kernel').value = v ? `Chrome ${v}` : '请先下载内核';
+  uaVerSel = v || '';
   syncUaModeText();
   updateKernelHint();
   if (uaMode === 'all') updateUaPreview();
@@ -791,7 +802,7 @@ function bindUaRow() {
       renderUaVerOptions();
       return;
     }
-    // 模式选项（全部/自定义）；"全部（随机）" = 不限版本，同时内核回到智能匹配
+    // 模式选项（全部/自定义）；"全部（随机）" = 不限版本，同时内核回到最新已下载（启动时 UA 主版本对齐内核）
     const opt = e.target.closest('.combo-option');
     if (!opt) return;
     $('ua-mode-dropdown').style.display = 'none';
@@ -1113,20 +1124,12 @@ async function refreshKernelAvailability() {
 function updateKernelHint() {
   const hint = $('kernel-hint');
   if (!hint) return;
-  const sel = selectedKernelVersion || 'auto';
-
-  // 智能匹配：检测系统 Chrome
-  if (sel === 'auto') {
-    const info = kernelAvailability && kernelAvailability['chrome'];
-    if (info && info.available) {
-      hint.textContent = '✓ 智能匹配：将使用系统已安装的 Chrome 启动';
-      hint.className = 'kernel-hint ok';
-    } else {
-      hint.textContent = '✗ 未检测到系统 Chrome，请在下方选择指定版本并下载内核';
-      hint.className = 'kernel-hint warn';
-    }
+  if (!selectedKernelVersion) {
+    hint.textContent = '请先下载并选择 Chrome for Testing 内核';
+    hint.className = 'kernel-hint warn';
     return;
   }
+  const sel = selectedKernelVersion;
 
   // 指定版本：看本地内核是否已下载
   const s = kernelStatus.find(x => x.major === sel);
@@ -1207,7 +1210,7 @@ function resetForm() {
   $('f-group-new').value = '';
   $('f-group-new').classList.remove('error');
   $('group-add-error').style.display = 'none';
-  selectKernel('auto');
+  selectKernel('');   // 默认取最新已下载内核（不再有"智能匹配"概念）
   setOsChecked('windows');
   for (const k in osVersionSel) delete osVersionSel[k];  // 版本勾选复位为 All
   updateKernelHint();
@@ -1228,6 +1231,12 @@ function resetForm() {
   setSegmentedVal('seg-geo-permission', 'ask');
   setSegmentedVal('seg-geo-mode', 'ip');
   setSegmentedVal('seg-lang-mode', 'ip');
+  setSegmentedVal('seg-hw-accel', 'on');
+  setSegmentedVal('seg-ssl', 'verify');
+  setSegmentedVal('seg-dnt', 'default');
+  setSegmentedVal('seg-portscan', 'on');
+  $('f-device-name').value = '';
+  $('f-mac').value = '';
 
   // 时区/地理位置/语言 联动 UI 复位
   $('f-tz').style.display = 'none';
@@ -1255,7 +1264,8 @@ function fillForm(p) {
   currentLabels = (p.labels || []).map(normLabel);
   renderLabelChips();
   setOsChecked(p.os || 'windows');
-  selectKernel(p.kernelVersion || 'auto');  // 智能匹配 或 指定大版本
+  // 兼容旧数据 kernelVersion='auto'：解析为最新已下载内核后固定为显式版本
+  selectKernel(p.kernelVersion && p.kernelVersion !== 'auto' ? p.kernelVersion : '');
   updateKernelHint();
   $('f-tags').value = (p.tags || []).join('\n');
   // 编辑已有环境时不允许批量创建
@@ -1344,6 +1354,17 @@ function fillForm(p) {
   }
   $('f-hw').value = fp.hardwareConcurrency || '';
   $('f-mem').value = fp.deviceMemory || '';
+
+  // 硬件加速 / SSL / DNT / 端口扫描防护（兼容旧数据缺省值 = 生成器默认）
+  setSegmentedVal('seg-hw-accel', fp.hardwareAcceleration === false ? 'off' : 'on');
+  setSegmentedVal('seg-ssl', fp.ignoreCertificateErrors ? 'ignore' : 'verify');
+  const dntBack = String(fp.doNotTrack);
+  setSegmentedVal('seg-dnt', dntBack === '1' ? '1' : (dntBack === '0' ? '0' : 'default'));
+  setSegmentedVal('seg-portscan', fp.portScanProtection === false ? 'off' : 'on');
+
+  // 设备名 / MAC（留空 = 启动时自动生成）
+  $('f-device-name').value = fp.deviceName || '';
+  $('f-mac').value = fp.macAddress || '';
 }
 
 async function saveProfile() {
@@ -1354,6 +1375,19 @@ async function saveProfile() {
   const selectedOs = getSelectedOs();
   if (!selectedOs) {
     uiToast('请至少选择一个操作系统', 'warn');
+    scrollToSection('basic');
+    return;
+  }
+
+  // 内核：必须选择已下载的 Chrome for Testing（禁用"智能匹配/系统 Chrome"回退）
+  if (!selectedKernelVersion) {
+    uiToast('请先下载并选择 Chrome for Testing 内核', 'warn');
+    scrollToSection('basic');
+    return;
+  }
+  const kernelInstalled = kernelStatus.find(s => s.major === selectedKernelVersion);
+  if (!kernelInstalled || !kernelInstalled.installed) {
+    uiToast(`Chrome ${selectedKernelVersion} 内核未下载，请先下载`, 'warn');
     scrollToSection('basic');
     return;
   }
@@ -1439,12 +1473,26 @@ async function saveProfile() {
   if ($('f-hw').value) fpOverrides.hardwareConcurrency = parseInt($('f-hw').value, 10);
   if ($('f-mem').value) fpOverrides.deviceMemory = parseInt($('f-mem').value, 10);
 
+  // 硬件加速 / SSL 证书 / DNT / 端口扫描防护
+  fpOverrides.hardwareAcceleration = getSegmentedVal('seg-hw-accel') !== 'off';
+  fpOverrides.ignoreCertificateErrors = getSegmentedVal('seg-ssl') === 'ignore';
+  const dntVal = getSegmentedVal('seg-dnt');
+  if (dntVal === 'default') delete fpOverrides.doNotTrack;
+  else fpOverrides.doNotTrack = dntVal; // '1' / '0'
+  fpOverrides.portScanProtection = getSegmentedVal('seg-portscan') !== 'off';
+
+  // 设备名 / MAC（留空 = 自动生成）
+  const deviceName = $('f-device-name').value.trim();
+  const macAddr = $('f-mac').value.trim();
+  if (deviceName) fpOverrides.deviceName = deviceName; else delete fpOverrides.deviceName;
+  if (macAddr) fpOverrides.macAddress = macAddr; else delete fpOverrides.macAddress;
+
   // 构造 payload
   const payload = {
     name,
     os: selectedOs,
     browser: 'chrome',
-    kernelVersion: selectedKernelVersion || 'auto',
+    kernelVersion: selectedKernelVersion,
     group: groupInputValue(),
     labels: currentLabels.map(l => ({ name: l.name, color: l.color })),
     proxy,

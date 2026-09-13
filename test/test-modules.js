@@ -28,6 +28,12 @@ const testPAC = generatePAC({
   port: 18888,
 });
 
+const regionalDirectPAC = generatePAC({
+  protocol: 'http',
+  host: '127.0.0.1',
+  port: 18888,
+}, { regionalDirect: true });
+
 // 验证 PAC 包含关键字段
 const checks = [
   ['包含 FindProxyForURL 函数', testPAC.includes('function FindProxyForURL')],
@@ -35,7 +41,8 @@ const checks = [
   ['包含 10.x.x.x 直连规则', testPAC.includes('10.0.0.0') && testPAC.includes('DIRECT')],
   ['包含 127.0.0.1 直连规则', testPAC.includes('127.0.0.0') && testPAC.includes('DIRECT')],
   ['包含代理出口规则', testPAC.includes('PROXY 127.0.0.1:18888')],
-  ['包含国内域名直连规则', testPAC.includes('.baidu.com') || testPAC.includes('.taobao.com')],
+  ['默认不包含区域直连规则', !testPAC.includes('.baidu.com') && !testPAC.includes('.googleapis.com')],
+  ['默认所有公网请求走代理', testPAC.includes('PROXY 127.0.0.1:18888')],
 ];
 
 checks.forEach(([desc, pass]) => {
@@ -44,6 +51,17 @@ checks.forEach(([desc, pass]) => {
 
 const allPACPass = checks.every(c => c[1]);
 console.log(`  结果: ${allPACPass ? '全部通过 ✓' : '存在失败 ✗'}\n`);
+
+console.log('【测试 1B】显式区域直连兼容模式');
+const regionalChecks = [
+  ['显式开启时包含区域域名直连', regionalDirectPAC.includes('.baidu.com')],
+  ['显式开启时仍包含代理出口', regionalDirectPAC.includes('PROXY 127.0.0.1:18888')],
+];
+regionalChecks.forEach(([desc, pass]) => {
+  console.log(`  ${pass ? '✓' : '✗'} ${desc}`);
+});
+const regionalPass = regionalChecks.every(c => c[1]);
+console.log(`  结果: ${regionalPass ? '全部通过 ✓' : '存在失败 ✗'}\n`);
 
 // ------------------------------------------------------------
 // 测试 2: 指纹生成器
@@ -71,6 +89,14 @@ const fpChecks = [
   ['包含 devicePixelRatio', fp1.devicePixelRatio !== undefined],
   ['包含 hardwareConcurrency', fp1.hardwareConcurrency >= 1],
   ['包含 deviceMemory', fp1.deviceMemory >= 1],
+  ['deviceMemory 不超过 Chrome 真实上限', fp1.deviceMemory <= 8],
+  ['UA-CH 与 UA 同源生成', !!fp1.userAgentData && fp1.userAgentData.platform.length > 0],
+  ['UA-CH 高熵版本与 UA 主版本一致', String(fp1.userAgentData.highEntropy.uaFullVersion).startsWith(String(fp1.userAgent.match(/Chrome\/(\d+)/)?.[1] || ''))],
+  ['kernelMajor 与 UA 主版本一致', fp1.kernelMajor === fp1.userAgent.match(/Chrome\/(\d+)/)?.[1]],
+  ['仅使用 Chrome 桌面 UA', /Chrome\//.test(fp1.userAgent) && !/Firefox\/|Version\/.*Mobile\//.test(fp1.userAgent)],
+  ['插件组包含 Chrome PDF Viewer 而非空数组', Array.isArray(fp1.plugins) && fp1.plugins.length === 5 && !!fp1.mimeTypes && fp1.mimeTypes.length === 2],
+  ['WebGL 暴露完整联动信息', !!fp1.webgl.extensions?.length && !!fp1.webgl.parameters && !!fp1.webgl.precision && !!fp1.webgl.webgpu],
+  ['字体不跨操作系统混用', !(/^windows$/i.test(fp1.os) && fp1.fonts.some(f => /PingFang|Geneva|Monaco/.test(f))) && !(/^macos$/i.test(fp1.os) && fp1.fonts.some(f => /Microsoft YaHei|Wingdings|Tahoma/.test(f)))],
 ];
 
 fpChecks.forEach(([desc, pass]) => {
@@ -87,6 +113,7 @@ console.log(`    平台: ${fp1.platform}`);
 console.log(`    时区: ${fp1.timezone}`);
 console.log(`    屏幕: ${fp1.screen.width}x${fp1.screen.height} (DPR ${fp1.devicePixelRatio})`);
 console.log(`    WebGL: ${fp1.webgl.renderer.substring(0, 50)}...`);
+console.log(`    UA-CH platform: ${fp1.userAgentData.platform}`);
 
 // ------------------------------------------------------------
 // 测试 3: 代理中继服务器启动/停止

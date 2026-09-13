@@ -54,9 +54,19 @@ async function applyCDPFingerprint(webContents, config) {
         await sendCDP(dbg, 'Emulation.setUserAgentOverride', {
           userAgent: config.userAgent,
           acceptLanguage: config.acceptLanguage || config.language || 'en-US,en;q=0.9',
-          platform: config.platform === 'Win32' ? 'Windows' :
-                    config.platform === 'MacIntel' ? 'Mac' :
-                    config.platform === 'Linux x86_64' ? 'Linux' : '',
+          platform: config.platform,
+          userAgentMetadata: config.userAgentData ? {
+            brands: config.userAgentData.brands || [],
+            fullVersionList: config.userAgentData.highEntropy?.fullVersionList || [],
+            fullVersion: config.userAgentData.highEntropy?.uaFullVersion || '',
+            platform: config.userAgentData.platform || '',
+            platformVersion: config.userAgentData.highEntropy?.platformVersion || '',
+            architecture: config.userAgentData.highEntropy?.architecture || '',
+            model: config.userAgentData.highEntropy?.model || '',
+            mobile: !!config.userAgentData.mobile,
+            bitness: config.userAgentData.highEntropy?.bitness || '',
+            wow64: !!config.userAgentData.highEntropy?.wow64,
+          } : undefined,
         });
         console.log('[CDP] ✓ UserAgent override (acceptLanguage:', config.acceptLanguage || config.language, ')');
       } catch (e) { console.warn('[CDP] UserAgent failed:', e.message); }
@@ -126,38 +136,8 @@ async function applyCDPFingerprint(webContents, config) {
           if (!window.chrome.loadTimes) window.chrome.loadTimes = function(){return null;};
           if (!window.chrome.csi) window.chrome.csi = function(){return null;};
         } catch(e) {}
-        try {
-          if (navigator.permissions && navigator.permissions.query) {
-            const orig = navigator.permissions.query.bind(navigator.permissions);
-            navigator.permissions.query = function(d) {
-              if (d && d.name === 'geolocation') {
-                return Promise.resolve({ state: '${geoPermState}', onchange: null, addEventListener: function(){}, removeEventListener: function(){} });
-              }
-              return Promise.resolve({ state: 'denied', onchange: null, addEventListener: function(){}, removeEventListener: function(){} });
-            };
-          }
-        } catch(e) {}
-        try {
-          Object.defineProperty(Notification, 'permission', { get: () => 'denied', configurable: true });
-        } catch(e) {}
-        try {
-          Object.defineProperty(navigator, 'plugins', { get: () => [], configurable: true });
-          Object.defineProperty(navigator, 'mimeTypes', { get: () => [], configurable: true });
-        } catch(e) {}
-        try {
-          // WebGL 渲染器伪装（CDP 无直接命令）
-          const origGetParameter = WebGLRenderingContext && WebGLRenderingContext.prototype.getParameter;
-          if (WebGLRenderingContext && WebGLRenderingContext.prototype.getParameter) {
-            WebGLRenderingContext.prototype.getParameter = function(pname) {
-              const GL_VENDOR = 0x1F00, GL_RENDERER = 0x1F01, GL_VERSION = 0x1F02, GL_SHADING_LANGUAGE_VERSION = 0x8B8C;
-              if (pname === GL_VENDOR) return 'Google Inc. (Intel)';
-              if (pname === GL_RENDERER) return 'ANGLE (Intel(R) Iris(R) Xe Graphics Direct3D11 vs_5_0 ps_5_0)';
-              if (pname === GL_VERSION) return 'WebGL 2.0 (ANGLE)';
-              if (pname === GL_SHADING_LANGUAGE_VERSION) return 'WebGL GLSL ES 3.00 (1.00)';
-              return origGetParameter.call(this, pname);
-            };
-          }
-        } catch(e) {}
+        // WebGL、plugins、permissions 保持 preload/session 层或 Chromium 原生行为；
+        // 这里不要用硬编码值二次覆盖，避免形成两层指纹。
         console.log('[CDP Inject] fingerprint JS applied OK');
       })();
     `;

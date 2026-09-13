@@ -2,7 +2,7 @@
  * Kernel Manager - Chrome 内核版本管理
  *
  * 与参考实现（ChroBrowser）一致的交互：固定步长大版本列表
- *   智能匹配(auto，用系统 Chrome) / Chrome 151 / 149 / 147 / ...
+ *   Chrome 151 / 149 / 147 / ...（全部为下载版 Chrome for Testing，不使用系统 Chrome）
  *
  * 列表锚定 Chrome for Testing 官方最新稳定版动态生成：
  *   拉取 last-known-good-versions.json 的 Stable 大版本 M，生成 M, M-2, ..., M-12（共 7 个）
@@ -13,7 +13,7 @@
  *   2. 下载 chrome-win64.zip 到 kernels/chrome-{major}/
  *   3. 用 PowerShell Expand-Archive 解压，得到 chrome-win64/chrome.exe
  *
- * 启动环境时：环境指定了大版本且已下载 → 用本地内核；否则回退系统 Chrome。
+ * 启动环境时：必须使用已下载的本地内核；未下载则报错，禁止回退系统 Chrome。
  */
 
 const fs = require('fs');
@@ -62,6 +62,16 @@ class KernelManager {
   getExePath(major) {
     const p = path.join(this.kernelsDir, `chrome-${major}`, 'chrome-win64', 'chrome.exe');
     return fs.existsSync(p) ? p : null;
+  }
+
+  /** 本地已安装的大版本，从新到旧返回 */
+  listInstalledMajors() {
+    if (!fs.existsSync(this.kernelsDir)) return [];
+    return fs.readdirSync(this.kernelsDir, { withFileTypes: true })
+      .filter(d => d.isDirectory() && /^chrome-\d{2,3}$/.test(d.name))
+      .map(d => d.name.slice(7))
+      .filter(major => !!this.getExePath(major))
+      .sort((a, b) => Number(b) - Number(a));
   }
 
   /** 状态列表（渲染进程下拉框数据源）；先锚定官方稳定版刷新列表 */

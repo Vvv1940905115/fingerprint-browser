@@ -35,6 +35,9 @@ console.log(`[Main] userData path set to: ${LOCAL_DATA_DIR}`);
 
 // 关键：禁用硬件加速，避免 GPU 进程写系统 DXCache/D3DSCache 触发沙箱拦截导致崩溃
 app.disableHardwareAcceleration();
+app.commandLine.appendSwitch('disable-gpu');
+app.commandLine.appendSwitch('in-process-gpu');
+app.commandLine.appendSwitch('no-sandbox');
 
 // ============================================================
 

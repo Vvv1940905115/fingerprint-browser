@@ -16,7 +16,6 @@
 <img width="1217" height="786" alt="螢幕擷取畫面 2026-09-13 112012" src="https://github.com/user-attachments/assets/ab382958-7965-4efc-a186-1d03628faab5" />
 <img width="1342" height="817" alt="螢幕擷取畫面 2026-09-13 111948" src="https://github.com/user-attachments/assets/ab70c23d-bbe3-43e0-a89e-2f9665c5bf11" />
 
-
 每个环境具备：
 
 | 能力 | 说明 |
@@ -26,8 +25,8 @@
 | **代理隔离** | 代理只作用于该环境内部，**绝不**修改系统全局代理、注册表、环境变量 |
 | **指纹伪造** | 伪造 UA、平台、屏幕、时区、地理定位、WebGL、Canvas、字体、硬件并发数、设备内存等 |
 | **指纹确定性** | 同一环境每次启动指纹完全一致；不同环境指纹互不重复 |
-| **多内核支持** | 智能匹配系统 Chrome，或一键下载指定大版本的 Chrome for Testing 本地内核（M ~ M-12） |
-| **系统与版本选择** | 支持伪装 Windows / macOS / Linux / Android / iOS 五大系统；每个系统可展开选择具体版本（单选，All = 全版本随机），屏幕、触控、字体等指纹参数随系统与版本联动 |
+| **多内核支持** | 固定使用下载版 Chrome for Testing 本地内核，一键下载指定大版本（M ~ M-12）；UA 主版本强制与内核主版本一致，禁止回退系统 Chrome |
+| **系统与版本选择** | 支持伪装 Windows / macOS / Linux / Android 四大系统（优先 Windows / macOS 桌面档案，Android 仅用于确有移动端需求且测试通过的环境）；每个系统可展开选择具体版本（单选，All = 全版本随机），屏幕、触控、字体等指纹参数随系统与版本联动 |
 | **浏览器版本随机范围** | UA 随机可限定在指定 Chrome 大版本内；与「浏览器内核」选择双向联动，保证内核与 UA 版本一致 |
 | **跟随IP匹配** | 时区 / 语言 / 地理位置可按代理出口 IP 自动匹配，保证指纹与 IP 归属地一致 |
 | **分组与标签** | 环境可分组管理、打彩色标签，支持搜索、批量选择 |
@@ -158,11 +157,9 @@ npm start
 **① 基础设置**
 
 1. 填写 **环境名称**（如 `美国-亚马逊店铺A`）；需要多个时设置 **新建环境数**（自动编号）
-2. 选择 **浏览器内核**：
-   - `智能匹配`：优先使用系统已安装的 Chrome 启动（未检测到则回退内置 Electron 内核）
-   - `Chrome 大版本`：选择指定大版本（如 Chrome 151），首次使用会自动下载对应 Chrome for Testing 内核
-3. 选择 **操作系统**：点击复选框选择系统（Windows / macOS / Linux / Android / iOS）；点击箭头展开选择该系统的具体**版本**（单选，`All` = 全版本随机）——UA、屏幕、触控、字体等指纹参数随系统与版本联动生成
-4. **User Agent**：默认「全部（随机）」，可点选限定 **Chrome 大版本**作为随机范围；该选择与上方「浏览器内核」**双向联动**（限定版本 = 自动选中对应内核，智能匹配 = 全部随机）；也可输入自定义 UA 字符串
+2. 选择 **浏览器内核**：仅提供已下载的 Chrome for Testing 大版本（如 Chrome 151），首次使用点击下拉项的下载图标自动下载；不使用系统 Chrome，未选择/未下载内核时无法保存与启动
+3. 选择 **操作系统**：优先 Windows / macOS 桌面档案（另可选 Linux / Android；Android 仅用于确有移动端需求且测试通过的环境）；点击箭头展开选择该系统的具体**版本**（单选，`All` = 全版本随机）——UA、屏幕、触控、字体等指纹参数随系统与版本联动生成
+4. **User Agent**：默认「全部（随机）」，可点选限定 **Chrome 大版本**作为随机范围；该选择与上方「浏览器内核」**双向联动**（限定版本 = 自动选中对应内核；全部随机 = 使用最新已下载内核）；也可输入自定义 UA 字符串
 5. 设置 **分组** 与 **标签**（可选）
 
 **② 代理信息**
@@ -196,15 +193,14 @@ npm start
 
 ### 1. 浏览器内核管理
 
-与主流指纹浏览器的交互一致，内核下拉列表提供 **智能匹配** + 固定步长大版本列表：
+内核下拉列表为固定步长大版本列表（全部为下载版 Chrome for Testing，**不使用系统 Chrome**）：
 
-- **智能匹配（auto）**：自动检测系统已安装的 Chrome（依次探测 Program Files / Program Files (x86) / LocalAppData 常见安装路径）；未检测到时回退内置 Electron 内核
 - **指定大版本**：列表锚定 [Chrome for Testing 官方最新稳定版](https://googlechromelabs.github.io/chrome-for-testing/) 动态生成（Stable 大版本 M，生成 `M, M-2, ..., M-12` 共 7 个；网络失败时沿用上次结果，首次离线回退内置默认列表）
   1. 从官方 `known-good-versions-with-downloads.json` 取该大版本下最新的 win64 构建
   2. 下载 `chrome-win64.zip` 到 `.electron-data/kernels/chrome-{major}/`
   3. 用 PowerShell `Expand-Archive` 解压，得到 `chrome-win64/chrome.exe`
   4. 下载进度通过 IPC 实时推送到界面（下拉项内显示百分比）
-- 启动环境时：环境指定了大版本且已下载 → 用本地内核；否则回退系统 Chrome
+- 启动环境时：必须使用已下载的本地内核，未下载则报错；**禁止回退系统 Chrome**（兼容旧数据中 `kernelVersion=auto` 的环境，启动时自动取最新已下载版本；新环境一律固定显式版本，UA 主版本强制等于内核主版本）
 
 ### 2. 跟随IP匹配（语言 / 时区 / 地理位置）
 
@@ -226,8 +222,19 @@ npm start
 
 ### 4. 指纹伪造（CDP 内核级 + JS 层双重机制）
 
-- **CDP 内核级覆盖**：User-Agent、时区、地理位置、屏幕、语言等在内核层面生效（`Emulation` / `Page.addScriptToEvaluateOnNewDocument`）
+- **CDP 内核级覆盖**：User-Agent（含 UA-CH 元数据）、时区、地理位置、屏幕、语言等在内核层面生效（`Emulation` / `Page.addScriptToEvaluateOnNewDocument`）
+  - **内置 Electron 内核**：走 `webContents.debugger`（`cdpCommands.js`）
+  - **外部 Chrome for Testing 内核**：走 `--remote-debugging-port=0` + DevToolsActivePort 轮询 + WebSocket CDP 连接（`cdpClient.js`），对所有 page/iframe target 注入完成后才放行启动，注入失败立即终止进程避免"指纹不一致"
 - **JS 层覆盖**（注入到每个窗口）：WebGL 显卡信息、Canvas 噪声、字体列表、CPU 核心数、设备内存、`navigator.webdriver` 清理、`chrome.runtime` 伪装、权限 API 伪装等
+- **扩展指纹项**：
+  - **AudioContext**：`getChannelData` / `getFloatFrequencyData` 确定性微噪声（同环境恒定、不叠加）
+  - **ClientRects**：`getClientRects` / `getBoundingClientRect` 亚像素噪声（保持几何恒等式）
+  - **Speech Voices**：`speechSynthesis.getVoices` 返回与语言/OS 匹配的伪造语音列表（Google 网络 TTS + OS 本地 TTS）
+  - **Do Not Track**：`navigator.doNotTrack`
+  - **设备标识**：设备名（`DESKTOP-XXXXXXX` 等按 OS 风格生成）/ MAC 地址（真实厂商 OUI 前缀）
+  - **端口扫描防护**：拦截页面通过 fetch/XHR/WebSocket 对 localhost/内网端口的探测（防止通过 CDP 调试端口识别自动化）
+  - **WebRTC**：disable（禁用）/ proxy（`disable_non_proxied_udp` 防泄露）/ real 三种策略
+  - **硬件加速 / SSL**：可选禁用 GPU 合成加速（Canvas 走软路径）、忽略证书错误
 - **确定性**：指纹由环境的 `fingerprintSeed`（默认用环境 ID）经 SHA-256 派生的随机数生成器确定——同一环境重启指纹完全一致，不同环境互不重复
 
 ---
@@ -261,13 +268,15 @@ fingerprint-browser/
 │   │   └── cnIPs.js             #   国内 IP 段 / 域名白名单
 │   └── fingerprint/
 │       ├── fingerprintGenerator.js  # 基于 seed 的确定性指纹生成
+│       ├── cdpClient.js             # 外部 CFT 内核的 CDP 注入通道（WebSocket + 会话管理）
 │       ├── cdpCommands.js           # CDP 内核级覆盖（UA/时区/地理/屏幕）
 │       ├── ipLocator.js             # 出口 IP 地理定位（跟随IP匹配的核心实现）
 │       └── preload.js               # JS 层指纹覆盖（注入到每个窗口）
 ├── tools/
 │   └── gen-icon.js              # 用 Electron 离屏渲染把 logo.svg 转成 logo.png
 ├── test/
-│   └── test-modules.js          # 不依赖 Electron 的模块自测
+│   ├── test-modules.js          # 不依赖 Electron 的模块自测
+│   └── test-external-launch.js  # 外部 CFT 内核启动全链路回归（含 CDP 注入验证）
 └── .electron-data/              # 运行时数据（自动生成，已在 .gitignore 忽略）
     ├── profiles/{id}.json       #   每个环境的配置
     ├── groups.json              #   分组列表
@@ -341,8 +350,8 @@ fingerprint-browser/
 **Q6：内核版本下载慢 / 失败**
 → Chrome for Testing 内核从 `googlechromelabs.github.io` 与 `storage.googleapis.com` 下载，国内网络建议给系统配置代理后重试；已下载的版本会缓存到 `.electron-data/kernels/`，无需重复下载。
 
-**Q7：智能匹配提示未检测到系统 Chrome**
-→ 安装系统版 Google Chrome，或改选指定大版本由应用自动下载内核；两者都没有时将回退内置 Electron 内核。
+**Q7：提示"未找到已下载的 Chrome for Testing 内核"**
+→ 在内核下拉框中点击下载图标下载指定大版本内核（国内网络建议先配好代理），下载完成后重新选择该版本。应用固定使用下载版 Chrome for Testing，不回退系统 Chrome。
 
 **Q8：跟随IP匹配不生效 / 时区不对**
 → 先确认代理连通性测试通过；ip-api.com 免费接口限频 45 次/分钟，频繁启动可能触发限频，稍后重试即可；需要固定值时可切为「自定义」手动指定。
@@ -368,16 +377,15 @@ fingerprint-browser/
 
 | 常量 | 作用 |
 | --- | --- |
-| `OS_POOLS` | 五大系统（Windows / macOS / Linux / Android / iOS）样本池汇总表，每池含 `versions`（系统版本）、`ua`（User-Agent）、`screens`（分辨率与 DPR）、`webgl`（显卡厂商/渲染器）、`fontSets`（字体列表）等 |
+| `OS_POOLS` | 四大系统（Windows / macOS / Linux / Android）样本池汇总表，每池含 `versions`（系统版本）、`ua`（User-Agent，统一 Chrome UA）、`screens`（分辨率与 DPR）、`webgl`（显卡厂商/渲染器）、`fontSets`（字体列表）等 |
 | `CHROME_VERSIONS` | Chrome 浏览器大版本号样本（用于 UA 随机范围与内核版本列表） |
-| `LEGACY_CHROME_VERSIONS` | 旧版 Chrome 大版本号样本（仅 Android / iOS 移动端使用） |
 | `TIMEZONE_POOL` | 时区（IANA ID + 偏移分钟）样本 |
 | `LANGUAGE_POOL` | 语言与 `navigator.languages` 样本 |
 | `GEOLOCATION_POOL` | 经纬度样本 |
 | `HW_CONCURRENCY_POOL` | CPU 核心数样本 |
 | `DEVICE_MEMORY_POOL` | 设备内存（GB）样本 |
 
-> 各系统的样本按前缀拆成独立常量（如 `WINDOWS_UA_POOL` / `WINDOWS_SCREEN_POOL` / `WINDOWS_WEBGL_POOL` / `WINDOWS_FONT_SETS`，macOS / Linux / Android / iOS 同理），再由 `OS_POOLS` 汇总引用。增删这些数组里的样本，即可改变对应系统可生成的指纹范围；算法本身（SHA-256 派生 + 确定性）无需改动。
+> 各系统的样本按前缀拆成独立常量（如 `WINDOWS_UA_POOL` / `WINDOWS_SCREEN_POOL` / `WINDOWS_WEBGL_POOL` / `WINDOWS_FONT_SETS`，macOS / Linux / Android 同理），再由 `OS_POOLS` 汇总引用。增删这些数组里的样本，即可改变对应系统可生成的指纹范围；算法本身（SHA-256 派生 + 确定性）无需改动。UA 统一为 Chrome UA（桌面或 Android Chrome Mobile），不提供 Firefox / iOS Safari 伪装；UA-CH（brands / fullVersionList / platformVersion）全部由同一 UA 字符串同源派生。
 
 ### 2. 国内直连白名单（决定哪些流量不走代理）
 

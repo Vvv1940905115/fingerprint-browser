@@ -32,8 +32,8 @@ const { ProxyRelay } = require('../proxy/proxyRelay');
 const { writePAC } = require('../proxy/pacGenerator');
 const { generateFingerprint } = require('../fingerprint/fingerprintGenerator');
 const { applyCDPFingerprint, detachCDP } = require('../fingerprint/cdpCommands');
+const { applyFingerprintToExternal } = require('../fingerprint/cdpClient');
 const { lookupIpGeo, getTimezoneOffsetMinutes, expandLanguageTags, buildAcceptLanguage, COUNTRY_TO_LANG } = require('../fingerprint/ipLocator');
-const { getBrowserPath } = require('./browserDetector');
 
 const PRELOAD_PATH = path.join(__dirname, '..', 'fingerprint', 'preload.js');
 const HOME_PAGE_PATH = path.join(__dirname, '..', '..', 'renderer', 'browser-home.html');
@@ -73,6 +73,13 @@ class BrowserLauncher {
         }
       }
     }
+
+    // 固定使用已下载的 Chrome for Testing，auto 只表示“最新已下载内核”，不再回退系统 Chrome
+    const kernel = profile.browser || 'chrome';
+    if (kernel !== 'chrome') {
+      throw new Error(`不支持的浏览器内核: ${kernel}，请使用 Chrome for Testing`);
+    }
+    const kernelVersion = this._resolveKernelVersion(profile.kernelVersion || 'auto');
 
     // ============================================================
     // 1. 启动本地代理中继
@@ -125,7 +132,11 @@ class BrowserLauncher {
     //    里显式指定时以用户为准
     // ============================================================
     const fpOverrides = { os: profile.os || 'windows', ...(profile.fingerprint || {}) };
+    fpOverrides.browserVer = kernelVersion;
     const fingerprintConfig = generateFingerprint(profile.fingerprintSeed, fpOverrides);
+    if (fingerprintConfig.kernelMajor !== String(kernelVersion)) {
+      throw new Error(`UA 主版本 (${fingerprintConfig.kernelMajor}) 与内核主版本 (${kernelVersion}) 不一致`);
+    }
     console.log(`[BrowserLauncher] Fingerprint generated (seed=${profile.fingerprintSeed.substring(0,8)}, customKeys=${Object.keys(profile.fingerprint || {}).join(',') || 'none'})`);
 
     // ============================================================
@@ -133,7 +144,13 @@ class BrowserLauncher {
     //     （时区/语言/地理位置任一为"跟随IP匹配"模式时查询，
     //       查询失败回退 seed 随机值，不阻塞启动）
     // ============================================================
-    await this._applyIpBasedLocale(fingerprintConfig, profile.fingerprint || {}, relayPort);
+    const ipLocaleResult = await this._applyIpBasedLocale(fingerprintConfig, profile.fingerprint || {}, relayPort);
+    if (!ipLocaleResult.ok) {
+      if (relay) {
+        try { await relay.stop(); } catch (e) { /* relay 可能已停止 */ }
+      }
+      throw new Error('IP 匹配失败：无法确认代理出口的时区/语言/地理位置，已阻止启动以避免指纹不一致');
+    }
 
     // ============================================================
     // 3.5 浏览器内核分支
@@ -141,10 +158,7 @@ class BrowserLauncher {
     //     chrome / edge   → 以独立 user-data-dir 启动系统安装的外部浏览器
     //     两者共享：代理中继 + PAC 分流 + 指纹配置
     // ============================================================
-    const kernel = profile.browser || 'electron';
-    if (kernel !== 'electron') {
-      return this._launchExternal(profile, kernel, { fingerprintConfig, relay, pacFilePath: filePath });
-    }
+    return this._launchExternal(profile, { fingerprintConfig, relay, pacFilePath: filePath, kernelVersion });
 
     // ============================================================
     // 4. 创建 BrowserWindow + 独立 session
@@ -223,7 +237,8 @@ class BrowserLauncher {
     //     allow → 直接允许
     //     block → 直接拒绝（配合 CDP geolocation error 双保险）
     // ============================================================
-    this._setupGeoPermission(win, profile);
+    this._setupGeoPermission(win, profile, fingerprintConfig.webRTC || 'disable');
+    this._setupWebRTC(win, fingerprintConfig.webRTC || 'disable');
 
     // ============================================================
     // 6. 加载页面（先让 BrowserWindow 显示出来，用户体验优先）
@@ -304,13 +319,13 @@ class BrowserLauncher {
 
     if (!needTz && !needLang && !needGeo) {
       console.log('[BrowserLauncher] 跟随IP匹配：全部为自定义模式，跳过 IP 定位');
-      return;
+      return { ok: true, info: null };
     }
 
     const info = await lookupIpGeo({ relayPort });
     if (!info || (!info.timezone && info.latitude === null && !info.countryCode)) {
-      console.warn('[BrowserLauncher] IP 地理位置查询失败，相关项回退 seed 随机值');
-      return;
+      console.warn('[BrowserLauncher] IP 地理位置查询失败，阻止启动');
+      return { ok: false, info: null };
     }
 
     console.log(`[BrowserLauncher] IP 地理位置查询成功: ${info.ip} ${info.country}(${info.countryCode}) tz=${info.timezone} geo=${info.latitude},${info.longitude}`);
@@ -328,6 +343,8 @@ class BrowserLauncher {
       fp.languages = expandLanguageTags([lang]);
       fp.acceptLanguage = buildAcceptLanguage(fp.languages);
     }
+
+    return { ok: true, info };
   }
 
   /**
@@ -335,15 +352,16 @@ class BrowserLauncher {
    * @param {Electron.BrowserWindow} win
    * @param {object} profile
    */
-  _setupGeoPermission(win, profile) {
+  _setupGeoPermission(win, profile, webRTCMode = 'disable') {
     const mode = (profile.fingerprint && profile.fingerprint.geoPermission) || 'ask';
     const sess = win.webContents.session;
+    const mediaAllowed = webRTCMode !== 'disable';
 
     if (mode === 'block') {
       sess.setPermissionRequestHandler((_wc, permission, callback) => {
-        callback(permission !== 'geolocation');
+        callback(permission !== 'geolocation' && mediaAllowed);
       });
-      sess.setPermissionCheckHandler((_wc, permission) => permission !== 'geolocation');
+      sess.setPermissionCheckHandler((_wc, permission) => permission !== 'geolocation' && mediaAllowed);
       console.log('[BrowserLauncher] 地理位置权限: 禁用');
       return;
     }
@@ -356,6 +374,7 @@ class BrowserLauncher {
 
     // ask：geolocation 请求弹窗询问用户，其余权限默认放行
     sess.setPermissionRequestHandler(async (wc, permission, callback) => {
+      if (permission === 'media') return callback(mediaAllowed);
       if (permission !== 'geolocation') return callback(true);
       try {
         let origin = '';
@@ -378,6 +397,21 @@ class BrowserLauncher {
   }
 
   /**
+   * WebRTC 网络隔离策略。完全关闭时同时禁止 media 权限，避免 getUserMedia
+   * 触发媒体设备枚举；代理模式使用 disable_non_proxied_udp，防止 UDP 绕过代理。
+   */
+  _setupWebRTC(win, webRTCMode = 'disable') {
+    const sess = win.webContents.session;
+    if (typeof sess.setWebRTCIPHandlingPolicy !== 'function') {
+      console.warn('[BrowserLauncher] 当前 Electron 不支持 WebRTC IP handling policy');
+      return;
+    }
+    const policy = webRTCMode === 'real' ? 'default' : 'disable_non_proxied_udp';
+    sess.setWebRTCIPHandlingPolicy(policy);
+    console.log(`[BrowserLauncher] WebRTC policy: ${policy} (${webRTCMode})`);
+  }
+
+  /**
    * 启动外部浏览器（系统安装的 Chrome / Edge）
    *
    * 隔离与代理机制（与内置内核同一套）：
@@ -393,28 +427,12 @@ class BrowserLauncher {
    * @param {{fingerprintConfig:object, relay:object|null, pacFilePath:string}} ctx
    * @returns {Promise<null>} 无 Electron 窗口，返回 null
    */
-  async _launchExternal(profile, kernel, ctx) {
-    const kernelName = kernel === 'chrome' ? 'Chrome' : 'Edge';
-
-    // 解析内核可执行文件路径：
-    //   1. 环境指定了大版本（非 auto）且该版本内核已下载 → 用本地 CFT 内核
-    //   2. 否则回退系统安装的 Chrome（智能匹配）
-    let exePath = null;
-    const kernelVersion = profile.kernelVersion || 'auto';
-    if (kernelVersion !== 'auto' && this.kernelManager) {
-      exePath = this.kernelManager.getExePath(kernelVersion);
-      if (exePath) {
-        console.log(`[BrowserLauncher] Using local kernel Chrome ${kernelVersion}: ${exePath}`);
-      } else {
-        console.warn(`[BrowserLauncher] Chrome ${kernelVersion} 内核未下载，回退系统 Chrome`);
-      }
-    }
-    if (!exePath) {
-      exePath = getBrowserPath(kernel);
-    }
+  async _launchExternal(profile, ctx) {
+    const kernelName = 'Chrome';
+    const exePath = this.kernelManager.getExePath(ctx.kernelVersion);
     if (!exePath) {
       if (ctx.relay) { try { await ctx.relay.stop(); } catch (e) { /* 清理 */ } }
-      throw new Error(`未找到可用的 ${kernelName} 内核，请先在内核下拉框中下载对应版本`);
+      throw new Error(`Chrome ${ctx.kernelVersion} 内核未下载，禁止回退系统浏览器`);
     }
 
     const { fingerprintConfig: fp, relay, pacFilePath } = ctx;
@@ -428,6 +446,8 @@ class BrowserLauncher {
       '--no-default-browser-check',
       '--disable-session-crashed-bubble',
       '--disable-blink-features=AutomationControlled',
+      // 随机调试端口：CDP 指纹注入通道（端口写入 user-data-dir/DevToolsActivePort）
+      '--remote-debugging-port=0',
       `--window-size=${fp.screen.width},${fp.screen.height}`,
     ];
 
@@ -439,6 +459,22 @@ class BrowserLauncher {
     // 指纹中命令行可覆盖的部分
     if (fp.userAgent) args.push(`--user-agent=${fp.userAgent}`);
     if (fp.language) args.push(`--lang=${fp.language.split(',')[0]}`);
+    if ((fp.webRTC || 'disable') === 'disable') {
+      args.push('--disable-features=WebRTC');
+    } else if (fp.webRTC === 'proxy') {
+      // 代理模式：禁止 UDP 直连绕过代理
+      args.push('--force-webrtc-ip-handling-policy=disable_non_proxied_udp');
+    }
+
+    // 硬件加速开关：关闭时禁用 GPU 合成/光栅化（Canvas 渲染走软路径）
+    if (fp.hardwareAcceleration === false) {
+      args.push('--disable-accelerated-2d-canvas', '--disable-gpu-compositing');
+    }
+
+    // SSL 证书：忽略证书错误（自签名/中间人调试场景）
+    if (fp.ignoreCertificateErrors) {
+      args.push('--ignore-certificate-errors');
+    }
 
     // 标签页作为启动参数（每行一个网址）
     const tags = (profile.tags || []).filter(u => /^https?:\/\//i.test(u));
@@ -452,16 +488,14 @@ class BrowserLauncher {
       console.error(`[BrowserLauncher] External ${kernelName} spawn error:`, err.message);
     });
 
-    // 跟踪 + 生命周期清理
-    this.activeWindows.set(profile.id, { window: null, child, relay });
-    this.profileManager.updateRuntime(profile.id, {
-      status: 'running',
-      windowId: child.pid,
-    });
+    // 跟踪 + 生命周期清理（cdp 会话在注入成功后挂到 entry 上）
+    const entry = { window: null, child, relay, cdp: null };
+    this.activeWindows.set(profile.id, entry);
 
     child.once('exit', () => {
       console.log(`[BrowserLauncher] External ${kernelName} exited: ${profile.name} (${profile.id})`);
       (async () => {
+        if (entry.cdp) { try { entry.cdp.close(); } catch (e) { /* 已关闭 */ } }
         if (relay) {
           try { await relay.stop(); } catch (e) { /* 可能已停止 */ }
         }
@@ -472,6 +506,45 @@ class BrowserLauncher {
           relayPort: null,
         });
       })();
+    });
+
+    // ============================================================
+    // CDP 指纹注入（外部内核唯一可靠的注入通道）
+    //   1. 等 DevToolsActivePort → WebSocket 连 browser 端点
+    //   2. Target.setAutoAttach(waitForDebugger) 暂停所有 target
+    //   3. 每个 target：UA/时区/地理位置/分辨率 Emulation 覆盖
+    //      + Page.addScriptToEvaluateOnNewDocument 注入 preload.js
+    //   失败即终止启动 —— 环境必须指纹一致，不允许"裸奔"的窗口
+    // ============================================================
+    const preloadSource = fs.readFileSync(PRELOAD_PATH, 'utf-8');
+    const injectScript = `globalThis.__FINGERPRINT_CONFIG__ = ${JSON.stringify(fp)};\n` + preloadSource;
+    try {
+      const applied = await applyFingerprintToExternal({
+        userDataDir,
+        config: fp,
+        script: injectScript,
+        timeoutMs: 15000,
+        log: console.log,
+      });
+      entry.cdp = applied.connection;
+      await Promise.race([
+        applied.done,
+        new Promise((_, rej) => setTimeout(() => rej(new Error('初始 target 注入超时')), 15000)),
+      ]);
+      console.log('[BrowserLauncher] ✓ CDP fingerprint applied to external kernel');
+    } catch (err) {
+      console.error('[BrowserLauncher] CDP fingerprint injection failed:', err.message);
+      if (entry.cdp) { try { entry.cdp.close(); } catch (e) { /* ignore */ } }
+      await this._killExternal(child);
+      if (relay) { try { await relay.stop(); } catch (e) { /* 可能已停止 */ } }
+      this.activeWindows.delete(profile.id);
+      this.profileManager.updateRuntime(profile.id, { status: 'stopped', windowId: null, relayPort: null });
+      throw new Error(`指纹注入失败（${err.message}），已终止启动以避免指纹不一致`);
+    }
+
+    this.profileManager.updateRuntime(profile.id, {
+      status: 'running',
+      windowId: child.pid,
     });
 
     return null;
@@ -526,6 +599,26 @@ class BrowserLauncher {
       new Promise((resolve) => child.once('exit', resolve)),
       new Promise((resolve) => setTimeout(resolve, 3000)),
     ]);
+  }
+
+  /**
+   * 解析本地 CFT 内核。显式版本必须已下载；auto 选择最高已下载版本。
+   */
+  _resolveKernelVersion(requested) {
+    if (!this.kernelManager) {
+      throw new Error('KernelManager 未初始化，无法启动 Chrome for Testing');
+    }
+    if (requested && requested !== 'auto') {
+      if (!this.kernelManager.getExePath(String(requested))) {
+        throw new Error(`Chrome ${requested} 内核未下载，禁止回退系统浏览器`);
+      }
+      return String(requested);
+    }
+    const installed = this.kernelManager.listInstalledMajors();
+    if (!installed.length) {
+      throw new Error('未找到已下载的 Chrome for Testing 内核，请先下载内核');
+    }
+    return installed[0];
   }
 
   /**

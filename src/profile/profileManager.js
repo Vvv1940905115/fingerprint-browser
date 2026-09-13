@@ -124,8 +124,8 @@ class ProfileManager {
       id,
       name: config.name || `环境_${id.substring(0, 8)}`,
       createdAt: Date.now(),
-      browser: config.browser || 'electron',   // 浏览器内核: electron | chrome | edge
-      kernelVersion: config.kernelVersion || 'auto', // 内核大版本: auto（智能匹配）| '150' | '148' ...
+      browser: config.browser || 'chrome',     // 浏览器内核: chrome（Chrome for Testing）
+      kernelVersion: config.kernelVersion || 'auto', // 内核大版本: auto（最高已下载版本）| '150' | '148' ...
       os: config.os || 'windows',              // 操作系统指纹维度: windows | macos | linux | android | ios
       group: config.group || '',               // 分组
       labels: config.labels || [],             // 标签（注意与 tags=启动标签页 URL 区分）
@@ -149,7 +149,7 @@ class ProfileManager {
     return Array.from(this.profiles.values()).map(p => ({
       id: p.id,
       name: p.name,
-      browser: p.browser || 'electron',
+      browser: p.browser || 'chrome',
       kernelVersion: p.kernelVersion || 'auto',
       os: p.os || 'windows',
       group: p.group || '',

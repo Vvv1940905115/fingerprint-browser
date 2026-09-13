@@ -25,9 +25,12 @@ const { CN_IP_RANGES, CN_DOMAINS, DIRECT_DOMAINS } = require('./cnIPs');
  * @param {string} proxy.protocol - http / socks5
  * @returns {string} PAC 文件内容
  */
-function generatePAC(proxy) {
+function generatePAC(proxy, options = {}) {
   // proxy 为 null 或无 host → 全部 DIRECT（无代理）
   const hasProxy = proxy && proxy.host && proxy.port;
+  // 默认全量代理：账号环境不得因分流规则绕过代理。区域直连只应作为
+  // 用户显式开启的兼容选项，并且不得用于高价值平台环境。
+  const regionalDirect = options.regionalDirect === true;
 
   let proxyLine = 'DIRECT';
   if (hasProxy) {
@@ -68,15 +71,19 @@ function generatePAC(proxy) {
   }).join('\n');
 
   // 生成国内域名匹配规则
-  const domainRules = CN_DOMAINS.concat(DIRECT_DOMAINS).map(domain => {
+  const domainRules = regionalDirect
+    ? CN_DOMAINS.concat(DIRECT_DOMAINS).map(domain => {
     return `    if (shExpMatch(host, "${domain}")) return "DIRECT";`;
-  }).join('\n');
+      }).join('\n')
+    : '';
 
   // 生成国内IP段匹配规则（数量多，分批处理以避免 PAC 文件过大）
-  const cnIpRules = CN_IP_RANGES.map(cidr => {
+  const cnIpRules = regionalDirect
+    ? CN_IP_RANGES.map(cidr => {
     const { ip, mask } = cidrToIsInNetArgs(cidr);
     return `    if (isInNet(host, "${ip}", "${mask}")) return "DIRECT";`;
-  }).join('\n');
+      }).join('\n')
+    : '';
 
   const pacContent = `// ============================================================
 // Auto-Generated PAC File - Fingerprint Browser
@@ -93,7 +100,7 @@ ${pacRules}
     if (host === "::1") return "DIRECT";
     if (isPlainHostName(host)) return "DIRECT";
 
-    // --- 国内域名/常用国内服务：强制直连 ---
+    // --- 可选区域直连规则（默认关闭）---
 ${domainRules}
 
     // --- 国内 IP 段：强制直连 ---
@@ -114,13 +121,13 @@ ${cnIpRules}
  * @param {Object} proxy - 代理配置
  * @returns {{ filePath: string, pacUrl: string }}
  */
-function writePAC(pacDir, profileId, proxy) {
+function writePAC(pacDir, profileId, proxy, options = {}) {
   if (!fs.existsSync(pacDir)) {
     fs.mkdirSync(pacDir, { recursive: true });
   }
 
   const filePath = path.join(pacDir, `profile_${profileId}.pac`);
-  const content = generatePAC(proxy);
+  const content = generatePAC(proxy, options);
   fs.writeFileSync(filePath, content, 'utf-8');
 
   // Chromium 在 Windows 下接受正斜杠或 file:/// 格式

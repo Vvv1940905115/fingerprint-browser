@@ -106,14 +106,14 @@ async function runE2ETest() {
   check('无代理 PAC：最终规则是 DIRECT', pac1.includes('return "DIRECT"'));
   check('无代理 PAC：包含 192.168 直连', pac1.includes('192.168'));
 
-  // Profile2 有代理 → 国内直连 + 境外走本地 relay
+  // Profile2 有代理 → 默认全量代理（仅局域网/localhost 直连）
   const { pacUrl: _u2, filePath: f2 } = writePAC(pm.getPacDir(), p2.id, {
     protocol: 'socks5', host: '127.0.0.1', port: 18888
   });
   const pac2 = fs.readFileSync(f2, 'utf-8');
   check('有代理 PAC：最终规则是 SOCKS5 127.0.0.1:18888', pac2.includes('SOCKS5 127.0.0.1:18888'));
-  check('有代理 PAC：baidu.com 直连（shExpMatch）', pac2.includes('.baidu.com'));
-  check('有代理 PAC：taobao.com 直连', pac2.includes('.taobao.com'));
+  check('有代理 PAC：baidu.com 不走直连（全量代理）', !pac2.includes('.baidu.com'));
+  check('有代理 PAC：taobao.com 不走直连（全量代理）', !pac2.includes('.taobao.com'));
   check('有代理 PAC：192.168 直连', pac2.includes('192.168'));
   check('有代理 PAC：10.x.x.x 直连', pac2.includes('10.0.0.0'));
   check('有代理 PAC：127.0.0.1 直连', pac2.includes('127.0.0.0'));

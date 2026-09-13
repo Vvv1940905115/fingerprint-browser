@@ -167,10 +167,9 @@
             <div class="form-group">
               <label>浏览器内核</label>
               <div class="combo-wrap" id="kernel-combo">
-                <input type="text" id="f-kernel" placeholder="智能匹配" autocomplete="off" readonly>
+                <input type="text" id="f-kernel" placeholder="请先下载内核" autocomplete="off" readonly>
                 <svg class="combo-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
                 <div class="combo-dropdown" id="kernel-dropdown" style="display:none;">
-                  <div class="combo-option" data-val="auto">智能匹配</div>
                   <div id="kernel-options"></div>
                 </div>
               </div>
@@ -178,8 +177,8 @@
             </div>
             <div class="form-group">
               <label>操作系统</label>
-              <div class="os-check-row" id="os-check-row"><!-- JS 渲染 5 个复选下拉按钮 --></div>
-              <div class="section-hint">点击复选框切换操作系统；点击箭头选择该系统的版本（单选，All = 全版本随机）。屏幕分辨率、触控、字体等指纹参数将随系统联动生成</div>
+              <div class="os-check-row" id="os-check-row"><!-- JS 渲染 4 个复选下拉按钮 --></div>
+              <div class="section-hint">优先选择 Windows / macOS 桌面档案；Android 仅用于确有移动端需求且测试通过的环境。点击复选框切换系统；点击箭头选择版本（单选，All = 全版本随机）。屏幕分辨率、触控、字体等指纹参数随系统联动生成</div>
             </div>
             <div class="form-group">
               <label>User Agent</label>
@@ -477,6 +476,52 @@
               </select>
             </div>
           </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>硬件加速</label>
+              <div class="segmented" id="seg-hw-accel">
+                <div class="seg-item active" data-val="on">开启</div>
+                <div class="seg-item" data-val="off">关闭</div>
+              </div>
+            </div>
+            <div class="form-group">
+              <label>SSL 证书</label>
+              <div class="segmented" id="seg-ssl">
+                <div class="seg-item active" data-val="verify">校验</div>
+                <div class="seg-item" data-val="ignore">忽略</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label>Do Not Track</label>
+              <div class="segmented" id="seg-dnt">
+                <div class="seg-item active" data-val="default">默认</div>
+                <div class="seg-item" data-val="1">开启</div>
+                <div class="seg-item" data-val="0">关闭</div>
+              </div>
+            </div>
+            <div class="form-group">
+              <label>端口扫描防护</label>
+              <div class="segmented" id="seg-portscan">
+                <div class="seg-item active" data-val="on">开启</div>
+                <div class="seg-item" data-val="off">关闭</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group flex-1">
+              <label>设备名</label>
+              <input type="text" id="f-device-name" placeholder="留空自动生成（如 DESKTOP-A1B2C3D）" autocomplete="off">
+            </div>
+            <div class="form-group flex-1">
+              <label>MAC 地址</label>
+              <input type="text" id="f-mac" placeholder="留空自动生成（如 A4:5E:60:1B:2C:3D）" autocomplete="off">
+            </div>
+          </div>
+
           <div class="form-group">
             <label>重新生成指纹种子</label>
             <p class="section-hint">换一套全新的指纹参数，下次启动时生效。同一环境重启指纹保持一致（基于 seed）。</p>
