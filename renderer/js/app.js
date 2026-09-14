@@ -89,6 +89,9 @@ function bindEvents() {
   bindSegmented('seg-ssl');
   bindSegmented('seg-dnt');
   bindSegmented('seg-portscan');
+  bindSegmented('seg-webgl', (val) => {
+    $('f-webgl-custom').style.display = val === 'custom' ? 'block' : 'none';
+  });
 
   // 代理类型联动
   $('f-proxy-type').onchange = () => {
@@ -117,6 +120,17 @@ function bindEvents() {
     fingerprintSeedOverride = crypto.randomUUID();
     uiToast('✓ 已生成新指纹种子！保存后下次启动生效。', 'success');
   };
+
+  // 硬件噪音：媒体设备编辑弹窗
+  $('btn-media-edit').onclick = openMediaModal;
+  $('media-auto').onchange = () => {
+    $('media-counts').style.display = $('media-auto').checked ? 'none' : 'block';
+  };
+  $('media-ok').onclick = applyMediaModal;
+  $('media-cancel').onclick = () => { $('media-modal').style.display = 'none'; };
+
+  // WebGL 元数据：渲染器随机（从当前系统的显卡池按厂商筛选）
+  $('btn-webgl-random').onclick = randomWebglRenderer;
 
   // Modal 关闭 / 保存
   $('modal-x').onclick = closeModal;
@@ -594,13 +608,75 @@ function setSegmentedVal(id, val) {
 }
 
 // ============================================================
+// 硬件噪音：媒体设备配置（弹窗编辑）
+// mediaCfg = { on, autoMatch, mic, speaker, camera }
+//   on=false → 关闭伪造（真实枚举）；autoMatch=true → 按系统自动匹配；
+//   否则使用显式数量（0-9）
+// ============================================================
+let mediaCfg = { on: true, autoMatch: true, mic: 1, speaker: 1, camera: 1 };
+
+function syncMediaTag() {
+  const tag = $('media-mode-tag');
+  if (!mediaCfg.on) { tag.style.display = 'none'; return; }
+  tag.style.display = '';
+  tag.textContent = mediaCfg.autoMatch ? '[Auto]' : '[自定义]';
+}
+
+function openMediaModal() {
+  $('media-auto').checked = mediaCfg.autoMatch;
+  $('media-mic').value = mediaCfg.mic;
+  $('media-speaker').value = mediaCfg.speaker;
+  $('media-camera').value = mediaCfg.camera;
+  $('media-counts').style.display = mediaCfg.autoMatch ? 'none' : 'block';
+  $('media-modal').style.display = 'flex';
+}
+
+function applyMediaModal() {
+  const clamp = (v) => Math.max(0, Math.min(9, Math.floor(Number(v) || 0)));
+  mediaCfg.autoMatch = $('media-auto').checked;
+  mediaCfg.mic = clamp($('media-mic').value);
+  mediaCfg.speaker = clamp($('media-speaker').value);
+  mediaCfg.camera = clamp($('media-camera').value);
+  syncMediaTag();
+  $('media-modal').style.display = 'none';
+}
+
+// ============================================================
+// WebGL 元数据：厂商选择 → 显卡池随机渲染器
+// ============================================================
+function webglVendorKey(w) {
+  const brand = `${w.unmaskedVendor || w.vendor || ''} ${w.renderer || ''}`;
+  if (/apple/i.test(`${w.vendor || ''} ${w.unmaskedVendor || ''}`)) return 'Apple Inc.';
+  if (/nvidia|geforce|rtx|gtx|quadro/i.test(brand)) return 'Google Inc. (NVIDIA)';
+  if (/amd|radeon/i.test(brand)) return 'Google Inc. (AMD)';
+  return 'Google Inc. (Intel)';
+}
+
+function randomWebglRenderer() {
+  const osKey = getSelectedOs() || 'windows';
+  const pool = (OS_POOLS[osKey] && OS_POOLS[osKey].webgl) || [];
+  if (!pool.length) { uiToast('当前系统暂无显卡池', 'warn'); return; }
+  const brand = $('f-webgl-vendor').value;
+  const brandMatch = {
+    'Google Inc. (Intel)': (r) => /intel/i.test(r.renderer),
+    'Google Inc. (NVIDIA)': (r) => /nvidia|geforce|rtx|gtx|quadro/i.test(r.renderer),
+    'Google Inc. (AMD)': (r) => /amd|radeon/i.test(r.renderer),
+    'Apple Inc.': (r) => /apple/i.test(`${r.vendor || ''} ${r.renderer || ''}`),
+  }[brand];
+  const matched = brandMatch ? pool.filter(brandMatch) : pool;
+  const list = matched.length ? matched : pool;
+  const picked = list[Math.floor(Math.random() * list.length)];
+  $('f-webgl-renderer').value = picked.renderer;
+}
+
+// ============================================================
 // 操作系统复选下拉按钮组 + User-Agent 行
 // 复用主进程指纹生成器的 OS_POOLS（渲染进程 nodeIntegration 直接 require）
 // ============================================================
-const OS_ICONS = { windows: '🪟', macos: '🍎', linux: '🐧', android: '🤖', ios: '📱' };
+const OS_ICONS = { windows: '🪟', macos: '🍎', linux: '🐧' };
 let uaMode = 'all'; // all=启动时从所选系统 UA 池随机 / custom=使用自定义 UA
 
-// 渲染 5 个 OS 复选下拉按钮（单选语义：点击切换，点击已勾选的可取消勾选）
+// 渲染 3 个 OS 复选下拉按钮（单选语义：点击切换，点击已勾选的可取消勾选）
 function renderOsCheckRow() {
   $('os-check-row').innerHTML = Object.keys(OS_POOLS).map(os => `
     <div class="os-check" data-val="${os}" title="${OS_POOLS[os].label}">
@@ -1255,6 +1331,18 @@ function resetForm() {
   $('f-res').value = '';
   $('f-hw').value = '';
   $('f-mem').value = '';
+
+  // 硬件噪音开关复位（全开）
+  ['sw-canvas', 'sw-webgl-img', 'sw-audio', 'sw-media', 'sw-clientrects', 'sw-speech']
+    .forEach(id => { $(id).checked = true; });
+  mediaCfg = { on: true, autoMatch: true, mic: 1, speaker: 1, camera: 1 };
+  syncMediaTag();
+
+  // WebGL 元数据复位：自定义 + 渲染器留空（= 显卡池随机）
+  setSegmentedVal('seg-webgl', 'custom');
+  $('f-webgl-custom').style.display = 'block';
+  $('f-webgl-vendor').value = 'Google Inc. (Intel)';
+  $('f-webgl-renderer').value = '';
 }
 
 function fillForm(p) {
@@ -1365,6 +1453,46 @@ function fillForm(p) {
   // 设备名 / MAC（留空 = 启动时自动生成）
   $('f-device-name').value = fp.deviceName || '';
   $('f-mac').value = fp.macAddress || '';
+
+  // 硬件噪音开关（旧数据缺省 = 全开）
+  $('sw-canvas').checked = fp.canvasNoise !== false;
+  $('sw-webgl-img').checked = fp.webglImageNoise !== false;
+  $('sw-audio').checked = fp.audioNoise !== false;
+  $('sw-clientrects').checked = fp.clientRectsNoise !== false;
+  $('sw-speech').checked = fp.speechVoices !== false;
+
+  // 媒体设备：false/null=关 / 显式数量 / Auto（缺省）
+  const md = fp.mediaDevices;
+  if (md === false || md === null) {
+    mediaCfg = { on: false, autoMatch: true, mic: 1, speaker: 1, camera: 1 };
+  } else if (md && typeof md === 'object'
+    && (md.autoMatch === false || md.micCount !== undefined
+      || md.speakerCount !== undefined || md.cameraCount !== undefined)) {
+    mediaCfg = {
+      on: true, autoMatch: false,
+      mic: md.micCount ?? 1, speaker: md.speakerCount ?? 1, camera: md.cameraCount ?? 1,
+    };
+  } else {
+    mediaCfg = { on: true, autoMatch: true, mic: 1, speaker: 1, camera: 1 };
+  }
+  $('sw-media').checked = mediaCfg.on;
+  syncMediaTag();
+
+  // WebGL 元数据：null=真实（暴露宿主显卡）/ 对象=自定义 / 缺省=显卡池随机
+  if (fp.webgl === null) {
+    setSegmentedVal('seg-webgl', 'real');
+    $('f-webgl-custom').style.display = 'none';
+    $('f-webgl-renderer').value = '';
+  } else {
+    setSegmentedVal('seg-webgl', 'custom');
+    $('f-webgl-custom').style.display = 'block';
+    if (fp.webgl && typeof fp.webgl === 'object' && fp.webgl.renderer) {
+      $('f-webgl-vendor').value = webglVendorKey(fp.webgl);
+      $('f-webgl-renderer').value = fp.webgl.renderer;
+    } else {
+      $('f-webgl-renderer').value = '';
+    }
+  }
 }
 
 async function saveProfile() {
@@ -1486,6 +1614,44 @@ async function saveProfile() {
   const macAddr = $('f-mac').value.trim();
   if (deviceName) fpOverrides.deviceName = deviceName; else delete fpOverrides.deviceName;
   if (macAddr) fpOverrides.macAddress = macAddr; else delete fpOverrides.macAddress;
+
+  // 硬件噪音开关（false = 关闭对应噪音，暴露真实输出）
+  fpOverrides.canvasNoise = $('sw-canvas').checked;
+  fpOverrides.webglImageNoise = $('sw-webgl-img').checked;
+  fpOverrides.audioNoise = $('sw-audio').checked;
+  fpOverrides.clientRectsNoise = $('sw-clientrects').checked;
+  fpOverrides.speechVoices = $('sw-speech').checked;  // true=按语言/系统自动生成
+
+  // 媒体设备：关 = false / Auto = true / 显式数量（0-9）
+  if (!mediaCfg.on) {
+    fpOverrides.mediaDevices = false;
+  } else if (mediaCfg.autoMatch) {
+    fpOverrides.mediaDevices = true;
+  } else {
+    fpOverrides.mediaDevices = {
+      autoMatch: false,
+      micCount: mediaCfg.mic,
+      speakerCount: mediaCfg.speaker,
+      cameraCount: mediaCfg.camera,
+    };
+  }
+
+  // WebGL 元数据：真实 = null（不覆盖 getParameter，暴露宿主显卡）
+  // 自定义 = 覆盖对象（渲染器留空 = 沿用显卡池随机）
+  if (getSegmentedVal('seg-webgl') === 'real') {
+    fpOverrides.webgl = null;
+  } else {
+    const webglRenderer = $('f-webgl-renderer').value.trim();
+    if (webglRenderer) {
+      const vendorSel = $('f-webgl-vendor').value;
+      fpOverrides.webgl = {
+        vendor: vendorSel === 'Apple Inc.' ? 'Apple Inc.' : 'Google Inc.',
+        unmaskedVendor: vendorSel,
+        renderer: webglRenderer,
+        unmaskedRenderer: webglRenderer,
+      };
+    }
+  }
 
   // 构造 payload
   const payload = {

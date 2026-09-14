@@ -24,6 +24,7 @@ const net = require('net');
 const url = require('url');
 const { URL } = require('url');
 const crypto = require('crypto');
+const { buildJa3Report } = require('./ja3Probe');
 
 class ProxyRelay {
   constructor(options) {
@@ -48,6 +49,34 @@ class ProxyRelay {
     // CONNECT 升级的 socket 脱离了 http server 的连接跟踪（closeAllConnections
     // 无法触及），必须自行记录引用，stop() 时手动销毁，否则 close() 永远等待
     this.tunnelSockets = new Set();
+
+    // JA3 嗅探（只读分析，见 ja3Probe.js 头注释的能力边界说明）
+    // 默认开启；通过 { ja3Report: false } 可单独关闭此项
+    this.ja3Report = options.ja3Report !== false;
+    this.ja3Reports = []; // 最近 50 条报告，供 getJa3Reports() 程序化读取
+  }
+
+  /**
+   * 嗅探隧道首块数据（TLS ClientHello）并输出 JA3 报告。
+   * 只读取分析，buffer 原样转发给真实目的地，零流量修改。
+   */
+  _sniffJa3(firstChunk, target) {
+    if (!this.ja3Report || !firstChunk || firstChunk.length === 0) return;
+    try {
+      const report = buildJa3Report(firstChunk, target);
+      if (report) {
+        console.log(report);
+        this.ja3Reports.push({ target, report, at: Date.now() });
+        if (this.ja3Reports.length > 50) this.ja3Reports.shift();
+      }
+    } catch (e) {
+      // 嗅探失败绝不影响转发
+    }
+  }
+
+  /** 程序化读取最近 JA3 嗅探报告（供主进程/测试/调试面板使用） */
+  getJa3Reports() {
+    return this.ja3Reports.slice();
   }
 
   /**
@@ -200,15 +229,7 @@ class ProxyRelay {
           if (firstLine.includes('200')) {
             // 隧道建立成功
             clientSocket.write('HTTP/1.1 200 Connection Established\r\n\r\n');
-
-            // 如果有 head（TLS ClientHello 的前几个字节），先转发
-            if (head && head.length > 0) {
-              proxySocket.write(head);
-            }
-
-            // 双向 pipe
-            clientSocket.pipe(proxySocket);
-            proxySocket.pipe(clientSocket);
+            establishTunnel();
           } else {
             clientSocket.write(`HTTP/1.1 502 Bad Gateway\r\n\r\n${responseBuffer}`);
             clientSocket.end();
@@ -217,6 +238,31 @@ class ProxyRelay {
       };
       proxySocket.on('data', onData);
     });
+
+    /**
+     * 建立双向转发。Chromium 发 CONNECT 后等 200 才发 ClientHello，
+     * 因此 head 几乎总是空的 —— 必须在 pipe 前拦截 clientSocket 的
+     * 首个数据块做 JA3 嗅探（只读），再原样进入 pipe。
+     */
+    function establishTunnel() {
+      const startPipe = (firstChunk) => {
+        if (firstChunk) self._sniffJa3(firstChunk, `${host}:${port}`);
+        if (firstChunk && firstChunk.length > 0) proxySocket.write(firstChunk);
+        clientSocket.pipe(proxySocket);
+        proxySocket.pipe(clientSocket);
+      };
+
+      if (head && head.length > 0) {
+        startPipe(head);
+      } else {
+        const onFirst = (chunk) => {
+          clientSocket.removeListener('data', onFirst);
+          startPipe(chunk); // 同步移除→嗅探→pipe，同一 tick 内完成，无数据丢失窗口
+        };
+        clientSocket.on('data', onFirst);
+      }
+    }
+    const self = this;
 
     // 跟踪上游侧 socket（连接可能尚未建立也要跟踪，stop 时才能全部销毁）
     this._trackSocket(proxySocket);
@@ -309,11 +355,7 @@ class ProxyRelay {
           upstreamSocket.removeListener('data', onConnectResponse);
           if (connectData[1] === 0x00) {
             clientSocket.write('HTTP/1.1 200 Connection Established\r\n\r\n');
-            if (head && head.length > 0) {
-              upstreamSocket.write(head);
-            }
-            clientSocket.pipe(upstreamSocket);
-            upstreamSocket.pipe(clientSocket);
+            startSocksTunnel();
           } else {
             clientSocket.write('HTTP/1.1 502 Bad Gateway\r\n\r\nSOCKS5 connect failed');
             clientSocket.end();
@@ -321,6 +363,31 @@ class ProxyRelay {
           }
         };
         upstreamSocket.on('data', onConnectResponse);
+      }
+
+      /**
+       * 建立双向转发（SOCKS5 路径）。
+       * 与 CONNECT 路径相同：head 通常为空，ClientHello 在 200 之后才到，
+       * 在 pipe 前拦截首块做 JA3 嗅探（只读）再原样转发。
+       */
+      const relay = this;
+      function startSocksTunnel() {
+        const startPipe = (firstChunk) => {
+          if (firstChunk) relay._sniffJa3(firstChunk, `${targetHost}:${targetPort}`);
+          if (firstChunk && firstChunk.length > 0) upstreamSocket.write(firstChunk);
+          clientSocket.pipe(upstreamSocket);
+          upstreamSocket.pipe(clientSocket);
+        };
+
+        if (head && head.length > 0) {
+          startPipe(head);
+        } else {
+          const onFirst = (chunk) => {
+            clientSocket.removeListener('data', onFirst);
+            startPipe(chunk);
+          };
+          clientSocket.on('data', onFirst);
+        }
       }
 
       upstreamSocket.on('data', onMethodResponse);

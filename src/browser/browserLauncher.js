@@ -33,6 +33,7 @@ const { writePAC } = require('../proxy/pacGenerator');
 const { generateFingerprint } = require('../fingerprint/fingerprintGenerator');
 const { applyCDPFingerprint, detachCDP } = require('../fingerprint/cdpCommands');
 const { applyFingerprintToExternal } = require('../fingerprint/cdpClient');
+const { buildStackReport } = require('../fingerprint/networkStackCheck');
 const { lookupIpGeo, getTimezoneOffsetMinutes, expandLanguageTags, buildAcceptLanguage, COUNTRY_TO_LANG } = require('../fingerprint/ipLocator');
 
 const PRELOAD_PATH = path.join(__dirname, '..', 'fingerprint', 'preload.js');
@@ -316,8 +317,10 @@ class BrowserLauncher {
     const needLang = (fpOverrides.languageMode || 'ip') === 'ip';
     const geoBlocked = (fpOverrides.geoPermission || fp.geoPermission) === 'block';
     const needGeo = !geoBlocked && (fpOverrides.geoMode || 'ip') === 'ip';
+    // WebRTC fake 模式也需要查询：srflx 候选要用代理出口 IP 替换
+    const needWebRTC = fp.webRTC === 'fake';
 
-    if (!needTz && !needLang && !needGeo) {
+    if (!needTz && !needLang && !needGeo && !needWebRTC) {
       console.log('[BrowserLauncher] 跟随IP匹配：全部为自定义模式，跳过 IP 定位');
       return { ok: true, info: null };
     }
@@ -342,6 +345,13 @@ class BrowserLauncher {
       fp.language = lang;
       fp.languages = expandLanguageTags([lang]);
       fp.acceptLanguage = buildAcceptLanguage(fp.languages);
+      // 请求头集合同步刷新（Accept-Language / 与 IP 所在国语言联动）
+      if (fp.headers) fp.headers['Accept-Language'] = fp.acceptLanguage;
+    }
+    // WebRTC fake 模式：把代理出口 IP 提供给 preload，替换 srflx 候选
+    // （无代理直连时 info.ip 是本机公网 IP，同样替换即可保持一致）
+    if (info.ip) {
+      fp.webrtcPublicIp = info.ip;
     }
 
     return { ok: true, info };
@@ -406,6 +416,10 @@ class BrowserLauncher {
       console.warn('[BrowserLauncher] 当前 Electron 不支持 WebRTC IP handling policy');
       return;
     }
+    // real    → default（真实 WebRTC，不干预）
+    // disable → disable_non_proxied_udp（内核级兜底）+ preload 移除 API（双保险）
+    // fake    → disable_non_proxied_udp（禁止 UDP 直连绕过代理）
+    //           + preload 劫持 RTCPeerConnection 替换 host/srflx 候选为虚拟 IP
     const policy = webRTCMode === 'real' ? 'default' : 'disable_non_proxied_udp';
     sess.setWebRTCIPHandlingPolicy(policy);
     console.log(`[BrowserLauncher] WebRTC policy: ${policy} (${webRTCMode})`);
@@ -419,8 +433,8 @@ class BrowserLauncher {
    *   - --proxy-pac-url  → 复用同一 PAC 分流文件（国内直连，境外走本地 Relay）
    *   - 命令行可覆盖的指纹项：UserAgent / 语言 / 窗口分辨率
    *
-   * 注意：外部浏览器无法注入 preload / CDP 级指纹，属于 JS API 层伪造以外的
-   *       降级方案；如需完整指纹伪造请使用内置内核。
+   * 注意：外部内核通过 CDP 注入完整指纹（UA/时区/地理位置/分辨率/preload.js），
+   *       JS 层与 HTTP 头层指纹与内置内核同一套体系，无降级。
    *
    * @param {object} profile
    * @param {'chrome'|'edge'} kernel
@@ -439,17 +453,44 @@ class BrowserLauncher {
     const userDataDir = this.profileManager.getUserDataPath(profile.id);
     console.log(`[BrowserLauncher] Launching external ${kernelName}: ${exePath}`);
     console.log(`[BrowserLauncher] user-data-dir: ${userDataDir}`);
+    // TCP/IP 网络栈一致性报告（TTL 等内核层特征，用户态边界说明见模块注释）
+    try { console.log(buildStackReport(fp.os)); } catch (e) { /* 报告失败不影响启动 */ }
 
     const args = [
       `--user-data-dir=${userDataDir}`,
       '--no-first-run',
       '--no-default-browser-check',
       '--disable-session-crashed-bubble',
-      '--disable-blink-features=AutomationControlled',
       // 随机调试端口：CDP 指纹注入通道（端口写入 user-data-dir/DevToolsActivePort）
       '--remote-debugging-port=0',
       `--window-size=${fp.screen.width},${fp.screen.height}`,
     ];
+
+    // ============================================================
+    // 反自动化特征加固（r5）：
+    //   - AutomationControlled: 移除 navigator.webdriver=true / 自动化行为标记
+    //   - disable-features 合并去重，避免多个 --disable-features 互相覆盖
+    // ============================================================
+    const disabledFeatures = new Set(['AutomationControlled']);
+    if ((fp.webRTC || 'disable') === 'disable') {
+      disabledFeatures.add('WebRTC');
+    }
+    args.push(`--disable-features=${[...disabledFeatures].join(',')}`);
+
+    // ============================================================
+    // WebRTC 启动策略（r6）：
+    //   disable → 连 WebRTC feature 一并禁用（上面的 disable-features）
+    //   fake    → 保留 API，由 preload 劫持 RTCPeerConnection 伪造 ICE/SDP；
+    //             内核层仍启用 disable_non_proxied_udp 兜底，防止 UDP 直连绕过代理
+    //   real    → 默认策略，不做任何干预
+    // ============================================================
+    const webrtcMode = fp.webRTC || 'disable';
+    if (webrtcMode === 'fake') {
+      args.push('--force-webrtc-ip-handling-policy=disable_non_proxied_udp');
+    }
+
+    // Accept-Language 请求头（Chromium 按 --accept-lang 生成头，与 navigator.languages 同步）
+    if (fp.language) args.push(`--accept-lang=${fp.languages ? fp.languages.join(',') : fp.language}`);
 
     // 代理：与内置内核一致，走 PAC 分流（有 relay 才有意义）
     if (relay) {
@@ -457,14 +498,9 @@ class BrowserLauncher {
     }
 
     // 指纹中命令行可覆盖的部分
+    // （WebRTC disable-features / policy 已在上面统一处理）
     if (fp.userAgent) args.push(`--user-agent=${fp.userAgent}`);
     if (fp.language) args.push(`--lang=${fp.language.split(',')[0]}`);
-    if ((fp.webRTC || 'disable') === 'disable') {
-      args.push('--disable-features=WebRTC');
-    } else if (fp.webRTC === 'proxy') {
-      // 代理模式：禁止 UDP 直连绕过代理
-      args.push('--force-webrtc-ip-handling-policy=disable_non_proxied_udp');
-    }
 
     // 硬件加速开关：关闭时禁用 GPU 合成/光栅化（Canvas 渲染走软路径）
     if (fp.hardwareAcceleration === false) {
@@ -636,7 +672,8 @@ class BrowserLauncher {
    */
   getActiveWindow(profileId) {
     const entry = this.activeWindows.get(profileId);
-    if (entry && !entry.window.isDestroyed()) return entry.window;
+    // 外部内核 entry.window 恒为 null，需空值防护
+    if (entry && entry.window && !entry.window.isDestroyed()) return entry.window;
     return null;
   }
 }

@@ -177,8 +177,8 @@
             </div>
             <div class="form-group">
               <label>操作系统</label>
-              <div class="os-check-row" id="os-check-row"><!-- JS 渲染 4 个复选下拉按钮 --></div>
-              <div class="section-hint">优先选择 Windows / macOS 桌面档案；Android 仅用于确有移动端需求且测试通过的环境。点击复选框切换系统；点击箭头选择版本（单选，All = 全版本随机）。屏幕分辨率、触控、字体等指纹参数随系统联动生成</div>
+              <div class="os-check-row" id="os-check-row"><!-- JS 渲染 3 个复选下拉按钮 --></div>
+              <div class="section-hint">优先选择 Windows / macOS 桌面档案。点击复选框切换系统；点击箭头选择版本（单选，All = 全版本随机）。屏幕分辨率、触控、字体等指纹参数随系统联动生成</div>
             </div>
             <div class="form-group">
               <label>User Agent</label>
@@ -323,6 +323,51 @@
         <!-- 分区 4: 高级设置（指纹 + 硬件 + 种子） -->
         <section class="form-section" data-panel="advanced">
           <h3 class="section-title"><span class="sec-num">4</span>高级设置</h3>
+          <div class="form-group">
+            <div class="noise-row">
+              <span class="noise-label">硬件噪音</span>
+              <div class="noise-switches">
+                <label class="switch-item"><input type="checkbox" id="sw-canvas" checked><span class="switch-ui"></span><span>Canvas</span></label>
+                <label class="switch-item"><input type="checkbox" id="sw-webgl-img" checked><span class="switch-ui"></span><span>WebGL图像</span></label>
+                <label class="switch-item"><input type="checkbox" id="sw-audio" checked><span class="switch-ui"></span><span>AudioContext</span></label>
+                <label class="switch-item"><input type="checkbox" id="sw-clientrects" checked><span class="switch-ui"></span><span>ClientRects</span></label>
+                <label class="switch-item"><input type="checkbox" id="sw-speech" checked><span class="switch-ui"></span><span>SpeechVoices</span></label>
+                <span class="switch-card">
+                  <label class="switch-item"><input type="checkbox" id="sw-media" checked><span class="switch-ui"></span><span>媒体设备</span><span class="media-tag" id="media-mode-tag">[Auto]</span></label>
+                  <button type="button" class="link-btn" id="btn-media-edit">编辑</button>
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <div class="noise-row">
+              <span class="noise-label">WebGL元数据</span>
+              <div class="segmented" id="seg-webgl">
+                <div class="seg-item" data-val="real">真实</div>
+                <div class="seg-item active" data-val="custom">自定义</div>
+              </div>
+            </div>
+            <div id="f-webgl-custom" class="webgl-custom-box" style="display:none;">
+              <div class="form-group">
+                <label>厂商</label>
+                <select id="f-webgl-vendor">
+                  <option value="Google Inc. (Intel)">Google Inc. (Intel)</option>
+                  <option value="Google Inc. (NVIDIA)">Google Inc. (NVIDIA)</option>
+                  <option value="Google Inc. (AMD)">Google Inc. (AMD)</option>
+                  <option value="Apple Inc.">Apple Inc.</option>
+                </select>
+              </div>
+              <div class="form-group" style="margin-bottom:0;">
+                <label>渲染器</label>
+                <div class="input-with-btn">
+                  <input type="text" id="f-webgl-renderer" placeholder="ANGLE (Intel, Intel(R) UHD Graphics 620 (0x0000-0xFFFF))" autocomplete="off">
+                  <button type="button" class="btn btn-outline btn-icon" id="btn-webgl-random" title="从对应操作系统的显卡池随机">🔀</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
           <div class="form-group">
             <label>WebRTC</label>
             <div class="segmented" id="seg-webrtc">
@@ -550,6 +595,42 @@
       <div class="modal-foot">
         <button class="btn btn-outline" id="confirm-no">取消</button>
         <button class="btn btn-danger" id="confirm-yes">确认</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== 媒体设备编辑弹窗 ===== -->
+  <div class="modal-mask" id="media-modal" style="display:none;">
+    <div class="modal modal-small">
+      <div class="modal-head">
+        <h2>媒体设备</h2>
+      </div>
+      <div class="modal-body">
+        <div class="form-group media-auto-group">
+          <label>媒体设备</label>
+          <label class="check-item">
+            <input type="checkbox" id="media-auto" checked>
+            <span>根据系统自动匹配媒体设备数量</span>
+          </label>
+        </div>
+        <div class="media-counts-box" id="media-counts" style="display:none;">
+          <div class="media-count-row">
+            <label>麦克风</label>
+            <input type="number" id="media-mic" min="0" max="9" step="1" value="1">
+          </div>
+          <div class="media-count-row">
+            <label>扬声器</label>
+            <input type="number" id="media-speaker" min="0" max="9" step="1" value="1">
+          </div>
+          <div class="media-count-row">
+            <label>摄像机</label>
+            <input type="number" id="media-camera" min="0" max="9" step="1" value="1">
+          </div>
+        </div>
+        <div class="media-modal-foot">
+          <button type="button" class="btn btn-primary" id="media-ok">确定</button>
+          <button type="button" class="btn btn-text" id="media-cancel">取消</button>
+        </div>
       </div>
     </div>
   </div>

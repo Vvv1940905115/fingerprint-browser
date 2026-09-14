@@ -113,6 +113,17 @@ async function applyCDPFingerprint(webContents, config) {
       } catch (e) { console.warn('[CDP] DeviceMetrics failed:', e.message); }
     }
 
+    // 5.5 HTTP 请求头对齐（Network 层）：Accept / Accept-Language / Accept-Encoding /
+    //     Sec-CH-UA 系列与 UA/OS 严格联动。setExtraHTTPHeaders 会覆盖同名默认头，
+    //     确保服务端看到的请求头与 navigator.userAgentData 完全一致（杜绝双头指纹）。
+    if (config.headerOverride !== false && config.headers) {
+      try {
+        await sendCDP(dbg, 'Network.enable');
+        await sendCDP(dbg, 'Network.setExtraHTTPHeaders', { headers: config.headers });
+        console.log('[CDP] ✓ Extra HTTP headers:', Object.keys(config.headers).join(', '));
+      } catch (e) { console.warn('[CDP] Extra headers failed:', e.message); }
+    }
+
     // 6. 综合 JS 注入（hardwareConcurrency / deviceMemory / webdriver / chrome.runtime / plugins）
     //    navigator.permissions.query：geolocation 按权限模式返回，其余保持 denied
     const geoPermState = config.geoPermission === 'allow' ? 'granted'

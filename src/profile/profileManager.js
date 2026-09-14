@@ -126,7 +126,7 @@ class ProfileManager {
       createdAt: Date.now(),
       browser: config.browser || 'chrome',     // 浏览器内核: chrome（Chrome for Testing）
       kernelVersion: config.kernelVersion || 'auto', // 内核大版本: auto（最高已下载版本）| '150' | '148' ...
-      os: config.os || 'windows',              // 操作系统指纹维度: windows | macos | linux | android | ios
+      os: config.os || 'windows',              // 操作系统指纹维度: windows | macos | linux
       group: config.group || '',               // 分组
       labels: config.labels || [],             // 标签（注意与 tags=启动标签页 URL 区分）
       tags: config.tags || [],

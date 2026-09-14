@@ -913,3 +913,244 @@ select option { background: var(--surface); color: var(--text); }
 .ui-toast.success { border-left-color: #34c77b; }
 .ui-toast.warn    { border-left-color: #e6a23c; }
 .ui-toast.error   { border-left-color: #f56c6c; }
+
+/* ============================================================
+   硬件噪音开关组 + WebGL 元数据 + 媒体设备弹窗
+   ============================================================ */
+
+/* ---------- 行布局：左侧标签 + 右侧内容 ---------- */
+.noise-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+}
+.noise-label {
+  flex-shrink: 0;
+  width: 82px;
+  padding-top: 9px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-2);
+}
+.noise-switches {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+}
+
+/* ---------- 卡片式开关（toggle + 文字一体，空间不足自动换行） ----------
+   注意：必须用 .noise-switches label.switch-item 提权，
+   否则会被上方 .form-group label { display:block } 覆盖导致布局崩坏 */
+.noise-switches label.switch-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 7px 12px;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--text-2);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+  transition: border-color 0.15s, background 0.15s, color 0.15s;
+}
+.noise-switches label.switch-item:hover {
+  border-color: var(--border-strong);
+  color: var(--text);
+}
+.noise-switches label.switch-item:has(input:checked) {
+  background: var(--accent-bg);
+  border-color: var(--accent-border);
+  color: var(--text);
+}
+.noise-switches label.switch-item input[type="checkbox"] {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+}
+.switch-ui {
+  flex-shrink: 0;
+  width: 32px;
+  height: 18px;
+  border-radius: 9px;
+  background: var(--surface-3);
+  border: 1px solid var(--border-strong);
+  position: relative;
+  transition: background 0.15s, border-color 0.15s;
+}
+.switch-ui::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--text-2);
+  transition: transform 0.15s, background 0.15s;
+}
+.noise-switches label.switch-item input:checked + .switch-ui {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.noise-switches label.switch-item input:checked + .switch-ui::after {
+  transform: translateX(14px);
+  background: var(--on-accent);
+}
+.noise-switches label.switch-item input:focus-visible + .switch-ui {
+  box-shadow: 0 0 0 2px var(--accent-ring);
+}
+
+.media-tag {
+  font-size: 11px;
+  color: var(--text-3);
+  margin-left: 2px;
+}
+
+/* ---------- 媒体设备卡片：toggle + 编辑按钮一体（带分隔线） ---------- */
+.switch-card {
+  display: inline-flex;
+  align-items: stretch;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  transition: border-color 0.15s, background 0.15s;
+}
+.switch-card:has(input:checked) {
+  background: var(--accent-bg);
+  border-color: var(--accent-border);
+}
+/* 卡片内层的开关恢复扁平，视觉统一由外层卡片负责 */
+.switch-card > label.switch-item {
+  background: none;
+  border: none;
+  border-radius: 0;
+}
+.switch-card > label.switch-item:hover {
+  border: none;
+}
+.switch-card > label.switch-item:has(input:checked) {
+  background: none;
+  border-color: transparent;
+}
+.switch-card .link-btn {
+  display: inline-flex;
+  align-items: center;
+  align-self: stretch;
+  padding: 0 12px;
+  border-left: 1px solid var(--border);
+}
+.switch-card .link-btn:hover {
+  background: var(--hover);
+  text-decoration: none;
+}
+
+/* ---------- 链接按钮（编辑） ---------- */
+.link-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: 12.5px;
+  color: var(--accent);
+  cursor: pointer;
+  font-family: inherit;
+  white-space: nowrap;
+}
+.link-btn:hover { color: var(--accent-strong); text-decoration: underline; }
+
+/* ---------- WebGL 自定义盒子 ---------- */
+.webgl-custom-box {
+  margin-top: 12px;
+  padding: 16px 16px 16px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+}
+.webgl-custom-box .form-group { margin-bottom: 14px; }
+.webgl-custom-box .form-group:last-child { margin-bottom: 0; }
+
+.input-with-btn {
+  display: flex;
+  align-items: stretch;
+}
+.input-with-btn input {
+  flex: 1;
+  min-width: 0;
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+.input-with-btn .btn-icon {
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+  border-left: none;
+  padding: 0 12px;
+  font-size: 14px;
+}
+
+/* ---------- 媒体设备弹窗 ---------- */
+.media-auto-group .check-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 13px;
+  color: var(--text);
+  cursor: pointer;
+  user-select: none;
+}
+.media-auto-group .check-item input[type="checkbox"] {
+  width: 15px;
+  height: 15px;
+  accent-color: var(--accent);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.media-counts-box {
+  margin: 4px 0 16px 82px;
+  padding: 16px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.media-count-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.media-count-row > label {
+  width: 52px;
+  flex-shrink: 0;
+  font-size: 13px;
+  color: var(--text);
+}
+.media-count-row input[type="number"] {
+  width: 130px;
+}
+.media-modal-foot {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 4px;
+}
+.media-modal-foot .btn-primary { padding: 8px 26px; }
+
+/* ---------- 纯文本按钮（取消） ---------- */
+.btn-text {
+  background: none;
+  border: none;
+  color: var(--text-2);
+  padding: 7px 12px;
+}
+.btn-text:hover { color: var(--text); }

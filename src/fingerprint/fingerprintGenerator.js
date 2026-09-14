@@ -5,9 +5,9 @@
  * 使用 "seed" 机制：同一 seed 永远生成同一套指纹，保证环境重启后指纹不变。
  * 不同 seed（不同 profileId）生成完全不同的指纹参数。
  *
- * OS 维度：fingerprint.os（windows / macos / linux / android / ios）决定
+ * OS 维度：fingerprint.os（windows / macos / linux）决定
  * UA 平台、屏幕分辨率、DPR、触控点数、字体、WebGL 等参数联动生成，
- * 避免 "Android UA + Win32 platform + 1920x1080" 这类矛盾组合。
+ * 避免 UA 与 platform / 分辨率相互矛盾的组合。
  */
 
 const crypto = require('crypto');
@@ -126,50 +126,10 @@ const LINUX_FONT_SETS = [
   ['DejaVu Sans', 'DejaVu Sans Mono', 'DejaVu Serif', 'Liberation Sans', 'Liberation Mono', 'Liberation Serif', 'Noto Sans', 'Noto Sans CJK SC', 'Noto Serif'],
 ];
 
-// ---------- Android ----------
-// 版本下拉：16 / 15 / 14 / 13 / 12 / 11 / 10，每版本搭配几款真实机型
-const ANDROID_VERSIONS = ['16', '15', '14', '13', '12', '11', '10'];
-const ANDROID_DEVICES_BY_VER = {
-  '16': ['Pixel 9 Pro', 'SM-S938B'],
-  '15': ['Pixel 8', 'SM-S928B', 'Pixel 7'],
-  '14': ['Pixel 7', 'SM-S918B'],
-  '13': ['Pixel 6a', 'SM-S911B'],
-  '12': ['Pixel 6', 'SM-G991B', 'Redmi Note 12 Pro'],
-  '11': ['Pixel 5', 'SM-G998B', 'Redmi Note 10 Pro'],
-  '10': ['Pixel 4', 'SM-G981B', 'Redmi Note 9'],
-};
-const ANDROID_UA_POOL = ANDROID_VERSIONS.flatMap((ver, vi) =>
-  ANDROID_DEVICES_BY_VER[ver].flatMap((dev, i) =>
-    // 每款机型轮换两个 Chrome 版本，扩大随机面
-    [CHROME_VERSIONS[(vi + i) % CHROME_VERSIONS.length], CHROME_VERSIONS[(vi + i + 3) % CHROME_VERSIONS.length]].map(c => {
-      const ua = `Mozilla/5.0 (Linux; Android ${ver}; ${dev}) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${c}.0.0.0 Mobile Safari/537.36`;
-      return { ua, ver, platform: 'Linux armv81', vendor: 'Google Inc.', appVersion: ua.slice(8) };
-    })
-  )
-);
-
-// Android CSS 像素分辨率（screen.width/height 实际报告值）
-const ANDROID_SCREEN_POOL = [
-  { width: 360, height: 800, dpr: 3 },
-  { width: 384, height: 854, dpr: 2.75 },
-  { width: 412, height: 915, dpr: 2.625 },
-  { width: 412, height: 915, dpr: 3.5 },
-];
-
-const ANDROID_WEBGL_POOL = [
-  { vendor: 'Google Inc.', renderer: 'ANGLE (Qualcomm, Adreno (TM) 730, OpenGL ES 3.2)', version: 'WebGL 2.0 (ANGLE 2.1.99f7f)', glslVersion: 'WebGL GLSL ES 3.00 (OpenGL ES GLSL ES 3.00 Chromium)' },
-  { vendor: 'Google Inc.', renderer: 'ANGLE (Qualcomm, Adreno (TM) 740, OpenGL ES 3.2)', version: 'WebGL 2.0 (ANGLE 2.1.99f7f)', glslVersion: 'WebGL GLSL ES 3.00 (OpenGL ES GLSL ES 3.00 Chromium)' },
-  { vendor: 'Google Inc.', renderer: 'ANGLE (ARM, Mali-G715-Immortalis MC11, OpenGL ES 3.2)', version: 'WebGL 2.0 (ANGLE 2.1.99f7f)', glslVersion: 'WebGL GLSL ES 3.00 (OpenGL ES GLSL ES 3.00 Chromium)' },
-];
-
-const ANDROID_FONT_SETS = [
-  ['Roboto', 'Noto Sans', 'Noto Sans CJK SC', 'Droid Sans Mono', 'sans-serif-condensed', 'sans-serif-thin'],
-];
-
 // ============================================================
 // OS 汇总表
-// 规格约束：UA 统一走当前 Chrome UA（桌面或 Android Chrome Mobile），
-// 不提供 Firefox / iOS Safari 伪装；iOS 无 Chrome 桌面内核对应 UA-CH 体系，已移除。
+// 规格约束：UA 统一走当前 Chrome 桌面 UA，
+// 不提供 Firefox / iOS Safari / Android 移动端伪装；iOS / Android 已移除。
 // ============================================================
 
 const OS_POOLS = {
@@ -199,17 +159,6 @@ const OS_POOLS = {
     webgl: LINUX_WEBGL_POOL,
     fontSets: LINUX_FONT_SETS,
     maxTouchPoints: 0,
-  },
-  android: {
-    label: 'Android',
-    versions: ANDROID_VERSIONS,
-    ua: ANDROID_UA_POOL,
-    screens: ANDROID_SCREEN_POOL,
-    webgl: ANDROID_WEBGL_POOL,
-    fontSets: ANDROID_FONT_SETS,
-    maxTouchPoints: 5,
-    hwConcurrency: [4, 6, 8],
-    deviceMemory: [4, 8],
   },
 };
 
@@ -292,7 +241,6 @@ const OS_LOCAL_VOICES = {
   ],
   macos: [{ name: 'Alex', lang: 'en-US' }, { name: 'Samantha', lang: 'en-US' }],
   linux: [{ name: 'English (America)', lang: 'en-US' }],
-  android: [{ name: 'Google TTS Engine', lang: 'en-US' }],
 };
 
 // 设备名（主机名）池
@@ -335,8 +283,8 @@ function buildWebglFingerprint(base, osKey) {
   const apple = osKey === 'macos';
   return {
     ...base,
-    unmaskedVendor: base.vendor,
-    unmaskedRenderer: base.renderer,
+    unmaskedVendor: base.unmaskedVendor || base.vendor,
+    unmaskedRenderer: base.unmaskedRenderer || base.renderer,
     extensions: windows ? [
       'ANGLE_instanced_arrays', 'EXT_blend_minmax', 'EXT_color_buffer_half_float',
       'EXT_float_blend', 'EXT_frag_depth', 'EXT_shader_texture_lod',
@@ -370,8 +318,8 @@ function buildWebglFingerprint(base, osKey) {
       35724: base.version,
       36347: 1024,
       36348: 1024,
-      37445: base.vendor,
-      37446: base.renderer,
+      37445: base.unmaskedVendor || base.vendor,
+      37446: base.unmaskedRenderer || base.renderer,
       37901: [32767, 32767],
       34852: 8,
       36063: 8,
@@ -415,7 +363,6 @@ function buildUserAgentData(ua, platform, rng) {
     Win32: 'Windows',
     MacIntel: 'macOS',
     'Linux x86_64': 'Linux',
-    'Linux armv81': 'Android',
     iPhone: 'iOS',
   }[platform] || 'Windows';
 
@@ -428,27 +375,21 @@ function buildUserAgentData(ua, platform, rng) {
   } else if (uaChPlatform === 'macOS') {
     const m = ua.match(/Mac OS X (\d+)[._](\d+)(?:[._](\d+))?/);
     platformVersion = m ? `${m[1]}.${m[2]}.${m[3] || '0'}` : '10.15.7';
-  } else if (uaChPlatform === 'Android') {
-    const m = ua.match(/Android (\d+)/);
-    platformVersion = m ? m[1] : '12';
-    const dm = ua.match(/Android \d+; ([^;)]+)\)/);
-    model = dm ? dm[1].trim() : '';
   } else if (uaChPlatform === 'iOS') {
     const m = ua.match(/CPU (?:iPhone )?OS (\d+)[._](\d+)/);
     platformVersion = m ? `${m[1]}.${m[2]}` : '18.0';
   }
 
-  const mobile = /Android/.test(ua) || /iPhone/.test(ua);
-  const isAndroid = uaChPlatform === 'Android';
+  const mobile = /iPhone/.test(ua);
 
   return {
     brands,
     mobile,
     platform: uaChPlatform,
     highEntropy: {
-      // 真实 Chromium 仅在桌面端填充 architecture/bitness，Android 留空
-      architecture: isAndroid ? '' : 'x86',
-      bitness: isAndroid ? '' : '64',
+      // 剩余系统均为桌面端，真实 Chromium 桌面端固定填充 architecture/bitness
+      architecture: 'x86',
+      bitness: '64',
       model,
       platformVersion,
       uaFullVersion: full,
@@ -456,6 +397,37 @@ function buildUserAgentData(ua, platform, rng) {
       wow64: false,
     },
   };
+}
+
+/**
+ * 构建 HTTP 请求头集合（与 UA / OS / 语言严格联动，杜绝"双头指纹"）：
+ *   - Accept              : Chrome 文档导航的标准值（含 signed-exchange）
+ *   - Accept-Language     : 由 languages 派生（q 值梯度），与 navigator.languages 一致
+ *   - Accept-Encoding     : Chromium 106+ 实际支持的编码集合（gzip/deflate/br/zstd）
+ *   - Sec-CH-UA           : 与 userAgentData.brands 同源序列化（GREASE + Chromium + 品牌）
+ *   - Sec-CH-UA-Mobile    : 与 userAgentData.mobile 同源（?0 / ?1）
+ *   - Sec-CH-UA-Platform  : 与 userAgentData.platform 同源（带引号）
+ *
+ * Firefox UA（userAgentData=null）只返回前三个头——真实 Firefox 不发送 UA-CH。
+ * 这些头通过 CDP Network.setExtraHTTPHeaders 下发到内核层，
+ * 确保服务端看到的请求头与 JS 层 navigator.* 完全一致。
+ */
+function buildHttpHeaders(userAgentData, languages) {
+  const headers = {
+    Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
+    'Accept-Language': buildAcceptLanguage(languages || ['en-US']),
+    'Accept-Encoding': 'gzip, deflate, br, zstd',
+  };
+
+  if (userAgentData) {
+    headers['Sec-CH-UA'] = userAgentData.brands
+      .map((b) => `"${b.brand}";v="${b.version}"`)
+      .join(', ');
+    headers['Sec-CH-UA-Mobile'] = userAgentData.mobile ? '?1' : '?0';
+    headers['Sec-CH-UA-Platform'] = `"${userAgentData.platform}"`;
+  }
+
+  return headers;
 }
 
 /**
@@ -473,17 +445,13 @@ function buildSpeechVoices(primaryLanguage, osKey) {
 /**
  * 构建设备名（主机名）。Windows 用 DESKTOP-XXXXXXX 风格，与真实默认主机名一致
  */
-function buildDeviceName(osKey, ua, rng) {
+function buildDeviceName(osKey, rng) {
   if (osKey === 'windows') {
     let name = 'DESKTOP-';
     for (let i = 0; i < 7; i++) name += Math.floor(rng() * 16).toString(16).toUpperCase();
     return name;
   }
   if (osKey === 'macos') return pick(MACOS_DEVICE_NAMES, rng);
-  if (osKey === 'android') {
-    const m = ua.match(/Android \d+; ([^;)]+)\)/);
-    return m ? m[1].trim() : 'Android';
-  }
   return pick(LINUX_DEVICE_NAMES, rng);
 }
 
@@ -496,6 +464,143 @@ function buildMacAddress(rng) {
     Math.floor(rng() * 256).toString(16).padStart(2, '0').toUpperCase()
   ).join(':');
   return `${oui}:${rest}`;
+}
+
+/**
+ * 构建电池指纹（navigator.getBattery）
+ *
+ * 与真实 Chromium 行为对齐：
+ *   - 台式机（无电池设备）：getBattery 返回 resolved 的 BatteryManager，
+ *     charging=true / chargingTime=0 / dischargingTime=Infinity / level=1（Chromium 默认值）
+ *   - 笔记本（有电池设备）：返回真实电池对象（电量/充电状态/剩余时间）
+ *
+ * 推断规则：
+ *   - macOS：设备名为 MacBook 系列 → 笔记本；iMac / Mac mini → 台式
+ *   - Windows / Linux：按 seed 确定性派生（约 55% 概率笔记本）
+ *
+ * 用户覆盖（profile.fingerprint.battery）：
+ *   - false            → 强制无电池
+ *   - { level, charging, chargingTime, dischargingTime } → 自定义电池参数
+ *   - undefined        → 自动派生
+ *
+ * @returns {{ hasBattery: boolean, level: number, charging: boolean,
+ *             chargingTime: number, dischargingTime: number }}
+ */
+function buildBatteryFingerprint(fp, osKey, deviceName, rng) {
+  // 自定义电池参数（显式对象 = 有电池）
+  if (fp.battery && typeof fp.battery === 'object') {
+    const b = fp.battery;
+    const charging = b.charging !== false;
+    return {
+      hasBattery: true,
+      charging,
+      level: Math.min(1, Math.max(0.01, Number(b.level) || 0.8)),
+      chargingTime: charging ? (Number(b.chargingTime) || 3600) : Infinity,
+      dischargingTime: !charging ? (Number(b.dischargingTime) || 14400) : Infinity,
+    };
+  }
+  // 强制无电池
+  if (fp.battery === false) {
+    return { hasBattery: false, level: 1, charging: true, chargingTime: 0, dischargingTime: Infinity };
+  }
+  // 自动派生：macOS 按设备名判断（MacBook = 笔记本），Windows/Linux 按概率
+  const hasBattery = osKey === 'macos'
+    ? /^MacBook/.test(deviceName)
+    : rng() < 0.55;
+  if (!hasBattery) {
+    // Chromium 在无电池设备上的固定返回值（与真实台式机一致）
+    return { hasBattery: false, level: 1, charging: true, chargingTime: 0, dischargingTime: Infinity };
+  }
+  const charging = rng() < 0.4;
+  return {
+    hasBattery: true,
+    charging,
+    // 电量 5% ~ 100%，一位小数
+    level: Math.round((0.05 + rng() * 0.95) * 10) / 10,
+    // 充电中：20 分钟 ~ 3 小时充满；放电：10 分钟 ~ 10 小时
+    chargingTime: charging ? Math.round(1200 + rng() * 9600) : Infinity,
+    dischargingTime: !charging ? Math.round(600 + rng() * 35400) : Infinity,
+  };
+}
+
+// 媒体设备标签池（enumerateDevices 的 label 字段，桌面机常见设备名）
+const CAMERA_LABELS = ['Integrated Camera', 'FaceTime HD Camera', 'HD WebCam', 'USB2.0 HD UVC WebCam', 'Integrated Webcam'];
+const MIC_LABELS = ['Microphone Array (Realtek Audio)', 'Built-in Microphone', '默认输入设备 (Realtek Audio)', 'External Microphone'];
+const SPEAKER_LABELS = ['Speakers (Realtek High Definition Audio)', 'Internal Speakers', 'Headphones (Realtek Audio)', 'Speakers (USB Audio)'];
+
+/**
+ * 构建媒体设备指纹（navigator.mediaDevices.enumerateDevices）
+ *
+ * 用户覆盖（profile.fingerprint.mediaDevices）：
+ *   - null / false                              → 关闭伪造（真实枚举，preload 不劫持）
+ *   - true / undefined / { autoMatch: true }    → 按系统自动匹配数量
+ *   - { micCount, speakerCount, cameraCount }   → 显式数量（≥0，最多 9）
+ *
+ * @returns {null | { autoMatch: boolean, micCount: number, speakerCount: number, cameraCount: number,
+ *                     micLabel: string, speakerLabel: string, cameraLabel: string,
+ *                     hasMic: boolean, hasSpeaker: boolean, hasCamera: boolean }}
+ */
+function buildMediaDevicesFingerprint(fp, rng) {
+  // 开关关闭：不伪造，保留真实设备枚举
+  if (fp.mediaDevices === null || fp.mediaDevices === false) return null;
+
+  const m = (fp.mediaDevices && typeof fp.mediaDevices === 'object') ? fp.mediaDevices : null;
+  // 显式模式：新格式（数量）或旧格式（hasMic/hasSpeaker/hasCamera 布尔）
+  const explicit = m && (m.autoMatch === false
+    || m.micCount !== undefined || m.speakerCount !== undefined || m.cameraCount !== undefined
+    || m.hasMic !== undefined || m.hasSpeaker !== undefined || m.hasCamera !== undefined);
+
+  const clampCount = (v) => Math.max(0, Math.min(9, Math.floor(Number(v) || 0)));
+  // 旧格式兼容：布尔标志 → 数量（true/undefined = 1，false = 0）
+  const flagToCount = (count, flag) => count ?? (flag === false ? 0 : 1);
+  let micCount; let speakerCount; let cameraCount; let autoMatch;
+  if (!explicit) {
+    // 自动派生（桌面常见分布）：扬声器 1-3 / 麦克风 1-3 / 摄像头 0-2（30% 无摄像头）
+    autoMatch = true;
+    speakerCount = 1 + Math.floor(rng() * 3);
+    micCount = 1 + Math.floor(rng() * 3);
+    cameraCount = rng() < 0.3 ? 0 : 1 + Math.floor(rng() * 2);
+  } else {
+    autoMatch = false;
+    micCount = clampCount(flagToCount(m.micCount, m.hasMic));
+    speakerCount = clampCount(flagToCount(m.speakerCount, m.hasSpeaker));
+    cameraCount = clampCount(flagToCount(m.cameraCount, m.hasCamera));
+  }
+  return {
+    autoMatch,
+    micCount,
+    speakerCount,
+    cameraCount,
+    micLabel: (m && m.micLabel) || pick(MIC_LABELS, rng),
+    speakerLabel: (m && m.speakerLabel) || pick(SPEAKER_LABELS, rng),
+    cameraLabel: (m && m.cameraLabel) || pick(CAMERA_LABELS, rng),
+    hasMic: micCount > 0,
+    hasSpeaker: speakerCount > 0,
+    hasCamera: cameraCount > 0,
+  };
+}
+
+/**
+ * 构建确定性的内网 IP（WebRTC 伪造模式用）
+ * host 候选中的本地 IP 统一替换为该地址，避免泄漏真实内网拓扑。
+ * 网段：192.168.x.y（x∈[2,30] 避开 .0/.1 常见网段，y∈[2,254] 避开网关/广播）
+ */
+function buildWebRTCLocalIp(rng) {
+  const x = 2 + Math.floor(rng() * 29);
+  const y = 2 + Math.floor(rng() * 253);
+  return `192.168.${x}.${y}`;
+}
+
+/**
+ * WebRTC 模式归一化（向后兼容历史 UI 值）
+ *   disable → 完全禁用（移除 WebRTC API）
+ *   fake    → 伪造（ICE 候选/SDP 中的真实 IP 替换为模拟 IP，含 proxy/forward/replace/proxy_udp 旧值）
+ *   real    → 真实（不做防护，直连模式下会暴露真实 IP）
+ */
+function normalizeWebRTCMode(mode) {
+  if (mode === 'real') return 'real';
+  if (mode === 'fake' || mode === 'proxy' || mode === 'forward' || mode === 'replace' || mode === 'proxy_udp') return 'fake';
+  return 'disable';
 }
 
 // ============================================================
@@ -560,8 +665,8 @@ function generateFingerprint(seed, overrides = {}) {
   const screen = pick(pool.screens, rng);
   const tz = pick(TIMEZONE_POOL, rng);
   const lang = pick(LANGUAGE_POOL, rng);
-  const hwConcurrency = pool.hwConcurrency ? pick(pool.hwConcurrency, rng) : pick(HW_CONCURRENCY_POOL, rng);
-  const deviceMemory = pool.deviceMemory ? pick(pool.deviceMemory, rng) : pick(DEVICE_MEMORY_POOL, rng);
+  const hwConcurrency = pick(HW_CONCURRENCY_POOL, rng);
+  const deviceMemory = pick(DEVICE_MEMORY_POOL, rng);
   const geo = pick(GEOLOCATION_POOL, rng);
   const selectedWebgl = pick(pool.webgl, rng);
   const fonts = pick(pool.fontSets, rng);
@@ -585,13 +690,20 @@ function generateFingerprint(seed, overrides = {}) {
   const safeDeviceMemory = fp.deviceMemory ? Math.min(8, Math.max(1, Number(fp.deviceMemory) || 8)) : deviceMemory;
   const chromeMajor = (customUA.ua.match(/Chrome\/(\d+)/) || [])[1] || null;
   const pluginGroup = buildPluginFingerprint(true);
+  const resolvedDeviceName = fp.deviceName || buildDeviceName(osKey, rng);
   const customWebgl = fp.webgl || {};
-  const webgl = buildWebglFingerprint({
-    vendor: customWebgl.vendor || selectedWebgl.vendor,
-    renderer: customWebgl.renderer || selectedWebgl.renderer,
-    version: customWebgl.version || selectedWebgl.version,
-    shadingLanguageVersion: customWebgl.shadingLanguageVersion || selectedWebgl.glslVersion,
-  }, osKey);
+  // WebGL 元数据：null（真实）= 不覆盖 getParameter，暴露宿主真实显卡；
+  // 对象（自定义）= 按 vendor/renderer 覆盖；undefined（旧数据）= 沿用显卡池随机
+  const webgl = fp.webgl === null
+    ? null
+    : buildWebglFingerprint({
+      vendor: customWebgl.vendor || selectedWebgl.vendor,
+      renderer: customWebgl.renderer || selectedWebgl.renderer,
+      version: customWebgl.version || selectedWebgl.version,
+      shadingLanguageVersion: customWebgl.shadingLanguageVersion || selectedWebgl.glslVersion,
+      unmaskedVendor: customWebgl.unmaskedVendor,
+      unmaskedRenderer: customWebgl.unmaskedRenderer,
+    }, osKey);
 
   return {
     enabled: true,
@@ -621,8 +733,17 @@ function generateFingerprint(seed, overrides = {}) {
     },
     devicePixelRatio: customScreen.dpr,
 
-    canvasNoise: true,
+    // ---- 硬件噪音开关（false = 关闭对应噪音，真实输出）----
+    // Canvas 像素噪音（toDataURL/toBlob/getImageData/measureText）
+    canvasNoise: fp.canvasNoise !== false,
+    // WebGL 图像噪音（readPixels 像素噪声，真实/自定义显卡模式均可叠加）
+    webglImageNoise: fp.webglImageNoise !== false,
+    // AudioContext 噪声（getChannelData/getFloatFrequencyData）
+    audioNoise: fp.audioNoise !== false,
+    // ClientRects 微噪声（getBoundingClientRect/getClientRects）
+    clientRectsNoise: fp.clientRectsNoise !== false,
 
+    // WebGL 元数据：null = 真实显卡（不覆盖），对象 = 自定义覆盖
     webgl,
 
     plugins: pluginGroup.plugins,
@@ -635,16 +756,38 @@ function generateFingerprint(seed, overrides = {}) {
 
     geolocation: customGeo,
 
-    webRTC: fp.webRTC || 'disable',  // disable / proxy / real
+    webRTC: normalizeWebRTCMode(fp.webRTC),  // disable(禁用) / fake(伪造) / real(真实)
+
+    // 电池指纹（navigator.getBattery）：台式无电池 / 笔记本确定性电量
+    battery: buildBatteryFingerprint(fp, osKey, resolvedDeviceName, rng),
+
+    // 媒体设备指纹（enumerateDevices）：有无摄像头/麦克风配置
+    mediaDevices: buildMediaDevicesFingerprint(fp, rng),
+
+    // WebRTC 伪造模式的确定性内网 IP（host 候选替换目标）
+    webrtcLocalIp: buildWebRTCLocalIp(rng),
+    // WebRTC 伪造模式的公网出口 IP（srflx 候选替换目标），
+    // 由 launcher 在 IP 定位后注入 _applyIpBasedLocale(fp)，无代理时为 null（跳过公网替换）
+
+    // HTTP 请求头对齐（Accept-Language / User-Agent / Sec-CH-UA 系列，与 UA/OS 严格联动）
+    headerOverride: fp.headerOverride !== false,
+    // 与 headerOverride 配套的请求头集合（CDP Network.setExtraHTTPHeaders 下发）
+    headers: buildHttpHeaders(userAgentData, customLang.languages),
+
+    // 自动化残留标记清理（cdc_ / $cdc_ / __$webdriverAsyncExecutor 等内核注入键）
+    cleanAutomationMarkers: fp.cleanAutomationMarkers !== false,
 
     // 地理位置权限模式：ask(询问，弹窗) / allow(允许) / block(禁用)
     geoPermission: fp.geoPermission || 'ask',
 
-    // 语音列表（speechSynthesis.getVoices）
-    speechVoices: fp.speechVoices || buildSpeechVoices(customLang.language, osKey),
+    // 语音列表（speechSynthesis.getVoices）：false = 关闭伪造（真实列表），
+    // 数组 = 自定义列表，undefined = 按语言/系统自动生成
+    speechVoices: fp.speechVoices === false
+      ? null
+      : (fp.speechVoices && fp.speechVoices.length ? fp.speechVoices : buildSpeechVoices(customLang.language, osKey)),
 
     // 设备标识：设备名（主机名）/ MAC 地址
-    deviceName: fp.deviceName || buildDeviceName(osKey, customUA.ua, rng),
+    deviceName: resolvedDeviceName,
     macAddress: fp.macAddress || buildMacAddress(rng),
 
     // Do Not Track：null(未设置) / '1' / '0'

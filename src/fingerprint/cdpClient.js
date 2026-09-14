@@ -437,6 +437,14 @@ async function applyFingerprintToExternal(opts) {
     }
     // 5. 指纹脚本（preload.js 源码 + config），在页面任何脚本之前执行
     await conn.send('Page.addScriptToEvaluateOnNewDocument', { source: script }, sessionId);
+
+    // 6. HTTP 请求头对齐（Network 层）：Accept / Accept-Language / Accept-Encoding /
+    //    Sec-CH-UA 系列与 UA/OS 严格联动。--user-agent 只改 UA 字符串，
+    //    Chromium 仍会用真实品牌发送 Sec-CH-UA，这里强制覆盖为同一套指纹。
+    if (config.headerOverride !== false && config.headers) {
+      await conn.send('Network.enable', {}, sessionId);
+      await conn.send('Network.setExtraHTTPHeaders', { headers: config.headers }, sessionId);
+    }
   }
 
   conn.onEvent(({ method, params }) => {

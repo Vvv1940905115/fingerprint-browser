@@ -24,9 +24,12 @@
 | **独立代理** | 每个环境可配置各自的 HTTP / HTTPS / SOCKS5 代理，支持账密认证 |
 | **代理隔离** | 代理只作用于该环境内部，**绝不**修改系统全局代理、注册表、环境变量 |
 | **指纹伪造** | 伪造 UA、平台、屏幕、时区、地理定位、WebGL、Canvas、字体、硬件并发数、设备内存等 |
+| **硬件噪音开关** | Canvas / WebGL 图像 / AudioContext / ClientRects / SpeechVoices / 媒体设备 六类硬件噪声可**逐项独立开关**（默认全开），状态随环境持久化 |
+| **WebGL 元数据自定义** | WebGL 厂商/渲染器默认从模拟系统的显卡池随机生成；可切换「真实」暴露宿主显卡，或「自定义」手动指定厂商（Intel/NVIDIA/AMD/Apple）与渲染器字符串，支持一键随机 |
+| **媒体设备伪造** | `enumerateDevices` 返回伪造设备列表；默认按模拟系统自动匹配数量（Auto），也可手动指定麦克风 / 扬声器 / 摄像机数量（0~9） |
 | **指纹确定性** | 同一环境每次启动指纹完全一致；不同环境指纹互不重复 |
 | **多内核支持** | 固定使用下载版 Chrome for Testing 本地内核，一键下载指定大版本（M ~ M-12）；UA 主版本强制与内核主版本一致，禁止回退系统 Chrome |
-| **系统与版本选择** | 支持伪装 Windows / macOS / Linux / Android 四大系统（优先 Windows / macOS 桌面档案，Android 仅用于确有移动端需求且测试通过的环境）；每个系统可展开选择具体版本（单选，All = 全版本随机），屏幕、触控、字体等指纹参数随系统与版本联动 |
+| **系统与版本选择** | 支持伪装 Windows / macOS / Linux 三大桌面系统（优先 Windows / macOS 桌面档案）；每个系统可展开选择具体版本（单选，All = 全版本随机），屏幕、触控、字体等指纹参数随系统与版本联动 |
 | **浏览器版本随机范围** | UA 随机可限定在指定 Chrome 大版本内；与「浏览器内核」选择双向联动，保证内核与 UA 版本一致 |
 | **跟随IP匹配** | 时区 / 语言 / 地理位置可按代理出口 IP 自动匹配，保证指纹与 IP 归属地一致 |
 | **分组与标签** | 环境可分组管理、打彩色标签，支持搜索、批量选择 |
@@ -158,7 +161,7 @@ npm start
 
 1. 填写 **环境名称**（如 `美国-亚马逊店铺A`）；需要多个时设置 **新建环境数**（自动编号）
 2. 选择 **浏览器内核**：仅提供已下载的 Chrome for Testing 大版本（如 Chrome 151），首次使用点击下拉项的下载图标自动下载；不使用系统 Chrome，未选择/未下载内核时无法保存与启动
-3. 选择 **操作系统**：优先 Windows / macOS 桌面档案（另可选 Linux / Android；Android 仅用于确有移动端需求且测试通过的环境）；点击箭头展开选择该系统的具体**版本**（单选，`All` = 全版本随机）——UA、屏幕、触控、字体等指纹参数随系统与版本联动生成
+3. 选择 **操作系统**：优先 Windows / macOS 桌面档案（另可选 Linux）；点击箭头展开选择该系统的具体**版本**（单选，`All` = 全版本随机）——UA、屏幕、触控、字体等指纹参数随系统与版本联动生成
 4. **User Agent**：默认「全部（随机）」，可点选限定 **Chrome 大版本**作为随机范围；该选择与上方「浏览器内核」**双向联动**（限定版本 = 自动选中对应内核；全部随机 = 使用最新已下载内核）；也可输入自定义 UA 字符串
 5. 设置 **分组** 与 **标签**（可选）
 
@@ -230,11 +233,15 @@ npm start
   - **AudioContext**：`getChannelData` / `getFloatFrequencyData` 确定性微噪声（同环境恒定、不叠加）
   - **ClientRects**：`getClientRects` / `getBoundingClientRect` 亚像素噪声（保持几何恒等式）
   - **Speech Voices**：`speechSynthesis.getVoices` 返回与语言/OS 匹配的伪造语音列表（Google 网络 TTS + OS 本地 TTS）
+  - **媒体设备**：`enumerateDevices` 返回伪造设备列表（Auto 按模拟系统匹配数量，或手动指定麦克风/扬声器/摄像机 0~9 个）
   - **Do Not Track**：`navigator.doNotTrack`
   - **设备标识**：设备名（`DESKTOP-XXXXXXX` 等按 OS 风格生成）/ MAC 地址（真实厂商 OUI 前缀）
   - **端口扫描防护**：拦截页面通过 fetch/XHR/WebSocket 对 localhost/内网端口的探测（防止通过 CDP 调试端口识别自动化）
   - **WebRTC**：disable（禁用）/ proxy（`disable_non_proxied_udp` 防泄露）/ real 三种策略
   - **硬件加速 / SSL**：可选禁用 GPU 合成加速（Canvas 走软路径）、忽略证书错误
+- **硬件噪音开关**：Canvas / WebGL 图像 / AudioContext / ClientRects / SpeechVoices / 媒体设备 六类噪声在高级设置中**逐项独立开关**（默认全开，状态随环境持久化，兼容旧数据缺省值）
+- **WebGL 元数据**：厂商/渲染器缺省从模拟系统的显卡池随机生成（与 OS 指纹联动）；可切「真实」暴露宿主显卡（`webgl: null`），或「自定义」手动指定厂商与渲染器（含一键随机按钮，显卡池经 IPC `webgl:pools` 下发）
+- **TLS / 传输层一致性**：JA3 TLS 指纹与 HTTP/2 指纹由真实 Chrome for Testing 内核生成——内核版本即模拟版本，天然同源一致；本地中继内置只读 JA3 嗅探器（`ja3Probe.js`）输出每条 CONNECT 隧道的 ClientHello 指纹供核对；启动时输出 TCP/IP 网络栈一致性报告（`networkStackCheck.js`，如实说明用户态边界：TTL 等内核参数无法修改，常规风控站点不检测）
 - **确定性**：指纹由环境的 `fingerprintSeed`（默认用环境 ID）经 SHA-256 派生的随机数生成器确定——同一环境重启指纹完全一致，不同环境互不重复
 
 ---
@@ -271,12 +278,18 @@ fingerprint-browser/
 │       ├── cdpClient.js             # 外部 CFT 内核的 CDP 注入通道（WebSocket + 会话管理）
 │       ├── cdpCommands.js           # CDP 内核级覆盖（UA/时区/地理/屏幕）
 │       ├── ipLocator.js             # 出口 IP 地理定位（跟随IP匹配的核心实现）
+│       ├── networkStackCheck.js     # TCP/IP 网络栈一致性报告（信息性，不做修改）
 │       └── preload.js               # JS 层指纹覆盖（注入到每个窗口）
 ├── tools/
 │   └── gen-icon.js              # 用 Electron 离屏渲染把 logo.svg 转成 logo.png
 ├── test/
-│   ├── test-modules.js          # 不依赖 Electron 的模块自测
-│   └── test-external-launch.js  # 外部 CFT 内核启动全链路回归（含 CDP 注入验证）
+│   ├── test-modules.js          # 不依赖 Electron 的模块自测（PAC/指纹/中继/WebGL派生/噪声）
+│   ├── test-relay-integration.js    # 代理中继集成测试（账密认证链路）
+│   ├── test-e2e-launch.js       # 端到端启动链路回归（25 项断言）
+│   ├── test-electron-window.js  # 外部 CFT 内核启动集成测试（PAC/隔离/清理，20 项断言）
+│   ├── test-external-launch.js  # CFT 内核全链路验证（拒绝回退/auto兼容，22 项断言）
+│   ├── test-verify-webgl.js     # WebGL 指纹端到端验证（137 项断言）
+│   └── test-noise-switches.js   # 噪声开关逐项验证（42 项断言）
 └── .electron-data/              # 运行时数据（自动生成，已在 .gitignore 忽略）
     ├── profiles/{id}.json       #   每个环境的配置
     ├── groups.json              #   分组列表
@@ -325,8 +338,16 @@ fingerprint-browser/
 | --- | --- |
 | `npm install` | 安装依赖（Electron） |
 | `npm start` | 启动主界面 |
-| `npm run test-modules` | 运行核心模块自测（PAC / 指纹 / 中继） |
+| `npm run test-modules` | 运行核心模块自测（PAC / 指纹 / 中继，无需图形界面） |
+| `npx electron test/test-verify-webgl.js` | WebGL 指纹端到端验证（137 项断言） |
+| `npx electron test/test-noise-switches.js` | 噪声开关逐项验证（42 项断言） |
+| `npx electron test/test-external-launch.js` | CFT 内核启动全链路验证（22 项断言） |
+| `npx electron test/test-electron-window.js` | 外部内核启动集成测试（20 项断言） |
+| `npx electron test/test-e2e-launch.js` | 端到端启动链路回归（25 项断言） |
+| `npx electron test/test-relay-integration.js` | 代理中继集成测试（3 项断言） |
 | `npx electron tools/gen-icon.js` | 修改 logo.svg 后重新生成 logo.png |
+
+> 全套测试共 **249 项断言**，全部通过（2026-09 回归记录）。除 `test-modules` 外均需启动 Electron 运行，测试过程会短暂打开真实浏览器窗口属正常现象。
 
 ---
 
@@ -377,7 +398,7 @@ fingerprint-browser/
 
 | 常量 | 作用 |
 | --- | --- |
-| `OS_POOLS` | 四大系统（Windows / macOS / Linux / Android）样本池汇总表，每池含 `versions`（系统版本）、`ua`（User-Agent，统一 Chrome UA）、`screens`（分辨率与 DPR）、`webgl`（显卡厂商/渲染器）、`fontSets`（字体列表）等 |
+| `OS_POOLS` | 三大桌面系统（Windows / macOS / Linux）样本池汇总表，每池含 `versions`（系统版本）、`ua`（User-Agent，统一 Chrome UA）、`screens`（分辨率与 DPR）、`webgl`（显卡厂商/渲染器）、`fontSets`（字体列表）等 |
 | `CHROME_VERSIONS` | Chrome 浏览器大版本号样本（用于 UA 随机范围与内核版本列表） |
 | `TIMEZONE_POOL` | 时区（IANA ID + 偏移分钟）样本 |
 | `LANGUAGE_POOL` | 语言与 `navigator.languages` 样本 |
@@ -385,7 +406,7 @@ fingerprint-browser/
 | `HW_CONCURRENCY_POOL` | CPU 核心数样本 |
 | `DEVICE_MEMORY_POOL` | 设备内存（GB）样本 |
 
-> 各系统的样本按前缀拆成独立常量（如 `WINDOWS_UA_POOL` / `WINDOWS_SCREEN_POOL` / `WINDOWS_WEBGL_POOL` / `WINDOWS_FONT_SETS`，macOS / Linux / Android 同理），再由 `OS_POOLS` 汇总引用。增删这些数组里的样本，即可改变对应系统可生成的指纹范围；算法本身（SHA-256 派生 + 确定性）无需改动。UA 统一为 Chrome UA（桌面或 Android Chrome Mobile），不提供 Firefox / iOS Safari 伪装；UA-CH（brands / fullVersionList / platformVersion）全部由同一 UA 字符串同源派生。
+> 各系统的样本按前缀拆成独立常量（如 `WINDOWS_UA_POOL` / `WINDOWS_SCREEN_POOL` / `WINDOWS_WEBGL_POOL` / `WINDOWS_FONT_SETS`，macOS / Linux 同理），再由 `OS_POOLS` 汇总引用。增删这些数组里的样本，即可改变对应系统可生成的指纹范围；算法本身（SHA-256 派生 + 确定性）无需改动。UA 统一为 Chrome 桌面 UA，不提供 Firefox / iOS Safari / Android 移动端伪装；UA-CH（brands / fullVersionList / platformVersion）全部由同一 UA 字符串同源派生。
 
 ### 2. 国内直连白名单（决定哪些流量不走代理）
 

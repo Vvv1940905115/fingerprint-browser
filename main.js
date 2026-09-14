@@ -21,6 +21,7 @@ const { BrowserLauncher } = require('./src/browser/browserLauncher');
 const { detectBrowsers } = require('./src/browser/browserDetector');
 const { KernelManager } = require('./src/browser/kernelManager');
 const { testProxy } = require('./src/proxy/proxyTester');
+const { OS_POOLS } = require('./src/fingerprint/fingerprintGenerator');
 
 // ============================================================
 // 关键：把 userData 改到项目本地，避免沙箱拦截 %APPDATA% 目录
@@ -475,6 +476,14 @@ ipcMain.handle('system:info', () => {
     version: app.getVersion(),
   };
 });
+
+// ---------- WebGL 显卡池（供渲染器随机按钮使用） ----------
+
+ipcMain.handle('webgl:pools', () => ({
+  windows: OS_POOLS.windows.webgl,
+  macos: OS_POOLS.macos.webgl,
+  linux: OS_POOLS.linux.webgl,
+}));
 
 // ============================================================
 // 全局错误处理
